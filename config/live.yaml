@@ -1,0 +1,37 @@
+# Live Trading Configuration
+# For paper trading simulation
+
+exchange:
+  name: binanceus
+  sandbox: false  # Binance.US doesn't have sandbox
+
+symbols:
+  - BTC/USDT
+  - ETH/USDT
+
+timeframe: "4h"
+
+data_source: "sql"  # "sql" or "ccxt"
+db_url: "sqlite:///data/hot_crypto.db"
+
+# Paper trading mode
+paper_trading: true
+initial_cash: 10000
+commission: 0.0005  # 0.05%
+slippage_bps: 2     # 2 basis points slippage
+
+# Risk Management
+risk:
+  risk_per_trade: 0.005           # 0.5% account risk per trade
+  max_open_positions: 2
+  max_daily_loss_pct: 0.02        # 2% max daily loss
+  max_total_drawdown_pct: 0.10    # 10% max total drawdown
+  cooldown_minutes_after_loss: 240  # 4 hours cooldown after loss
+  min_atr_pct_filter: 0.003       # Skip trades if ATR < 0.3%
+  spread_guard_bps: 10            # Skip if spread > 10 bps
+
+# Loop settings
+loop:
+  sleep_seconds: 60               # Sleep between cycles
+  refresh_bars_from_ccxt: 50      # Bars to fetch from CCXT on refresh
+  lookback_bars: 500              # Bars to load for strategy

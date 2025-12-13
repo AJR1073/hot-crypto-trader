@@ -1,0 +1,27 @@
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.Python
+env/
+venv/
+.env
+.venv
+*.egg-info/
+
+# Database
+data/*.db
+data/*.sqlite
+
+# Logs
+*.log
+logs/
+
+# IDE
+.idea/
+.vscode/
+.DS_Store
+
+# Streamlit
+.streamlit/

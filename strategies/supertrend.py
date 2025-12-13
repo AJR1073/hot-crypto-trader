@@ -1,0 +1,181 @@
+"""
+SuperTrend Strategy: Trend following using ATR-based trailing stop.
+
+Strategy:
+- Enter LONG when Close > SuperTrend (Trend becomes Bullish).
+- Enter SHORT when Close < SuperTrend (Trend becomes Bearish).
+- Exit: Trend reversal acting as trailing stop.
+"""
+
+from backtesting import Strategy
+import pandas as pd
+import numpy as np
+
+from .base import BaseStrategy, StrategySignal
+from .indicators import SuperTrend, ATR
+
+
+class SuperTrendBacktest(Strategy):
+    """
+    SuperTrend Strategy for Backtesting.py.
+    """
+    
+    # Parameters
+    period = 10
+    multiplier = 3.0
+    risk_per_trade = 0.01  # 1% risk per trade
+    
+    def init(self):
+        """Initialize indicators."""
+        high = pd.Series(self.data.High)
+        low = pd.Series(self.data.Low)
+        close = pd.Series(self.data.Close)
+        
+        # Calculate SuperTrend
+        st_df = SuperTrend(high, low, close, self.period, self.multiplier)
+        
+        # Store indicator lines for plotting
+        self.supertrend = self.I(lambda: st_df['SuperTrend'], name='SuperTrend')
+        self.trend = self.I(lambda: st_df['Trend'], name='Trend')
+        
+    def next(self):
+        """Process each bar."""
+        # Skip if indicators not ready
+        if len(self.data) < self.period:
+            return
+
+        current_trend = self.trend[-1]
+        prev_trend = self.trend[-2]
+        current_close = self.data.Close[-1]
+        st_value = self.supertrend[-1]
+        
+        # Check for Trend Reversal (Entry Signals)
+        
+        # Bullish Reversal (Bear -> Bull)
+        if prev_trend == -1 and current_trend == 1:
+            if self.position.is_short:
+                self.position.close()
+            
+            if not self.position:
+                # Calculate position size based on risk
+                # Stop loss is the SuperTrend line itself (initial distance)
+                risk_per_share = abs(current_close - st_value)
+                if risk_per_share > 0:
+                    risk_dollars = self.equity * self.risk_per_trade
+                    size = risk_dollars / risk_per_share
+                    
+                    # Cap size at 95% equity to leave room for fees
+                    max_size = (self.equity * 0.95) / current_close
+                    size = min(size, max_size)
+                    
+                    self.buy(size=size, sl=st_value)
+        
+        # Bearish Reversal (Bull -> Bear)
+        elif prev_trend == 1 and current_trend == -1:
+            if self.position.is_long:
+                self.position.close()
+                
+            if not self.position:
+                # Calculate position size based on risk
+                risk_per_share = abs(current_close - st_value)
+                if risk_per_share > 0:
+                    risk_dollars = self.equity * self.risk_per_trade
+                    size = risk_dollars / risk_per_share
+                    
+                    max_size = (self.equity * 0.95) / current_close
+                    size = min(size, max_size)
+                    
+                    self.sell(size=size, sl=st_value)
+        
+        # Update trailing stop for existing position
+        if self.position.is_long and current_trend == 1:
+            # For long, SL should only move UP
+            # Backtesting.py handles SL updates if we re-set it? 
+            # Actually, simplest way in Backtesting.py is to verify SL triggers.
+            # But here we want to update the SL to the new ST value.
+            self.position.sl = st_value
+            
+        elif self.position.is_short and current_trend == -1:
+            # For short, SL should only move DOWN
+            self.position.sl = st_value
+
+
+class SuperTrendLive(BaseStrategy):
+    """
+    Live trading implementation of SuperTrend strategy.
+    """
+
+    def __init__(self, config: dict):
+        super().__init__(config)
+        self.period = config.get("period", 10)
+        self.multiplier = config.get("multiplier", 3.0)
+
+    def on_bar(self, symbol: str, candle: dict) -> StrategySignal:
+        """Process a new candle and return a signal."""
+        self.init_symbol(symbol)
+        state = self.state[symbol]
+        
+        df = state.get("df")
+        if df is None or len(df) < self.period + 5:
+            return StrategySignal(symbol=symbol, action="HOLD")
+        
+        # Calculate SuperTrend
+        st_df = SuperTrend(df["high"], df["low"], df["close"], self.period, self.multiplier)
+        
+        current_trend = st_df["Trend"].iloc[-1]
+        prev_trend = st_df["Trend"].iloc[-2]
+        st_value = st_df["SuperTrend"].iloc[-1]
+        
+        current_close = candle["close"]
+        position = state.get("position")
+        
+        # Trend Reversal Logic
+        
+        # Bullish Reversal (Bear -> Bull)
+        if prev_trend == -1 and current_trend == 1:
+            if position:
+                if position.get("side") == "SHORT":
+                    state["position"] = None
+                    # Close Short AND Open Long (Flip)
+                    # For simplicity, live runner usually handles one action per bar.
+                    # We'll return CLOSE_SHORT and assume next bar (or logic) handles entry?
+                    # Or simpler: Just return OPEN_LONG which implies closing short in some systems.
+                    # In our system: return CLOSE_SHORT, then next cycle will see Bull trend and enter?
+                    # Actually, better to just signal OPEN_LONG and let execution handle flipping.
+                    # But our RiskManager might block new trade if short exists.
+                    # Let's check position side.
+                    return StrategySignal(symbol=symbol, action="CLOSE_SHORT", 
+                                         extra={"reason": "trend_reversal_bullish"})
+            
+            # If no position, enter LONG
+            risk_dist = abs(current_close - st_value)
+            tp = current_close + (risk_dist * 3) # Optional 3R TP
+            state["position"] = {"side": "LONG", "entry": current_close}
+            return StrategySignal(symbol=symbol, action="OPEN_LONG",
+                                 extra={"stop": st_value, "tp": tp, "strategy": "SuperTrend"})
+
+        # Bearish Reversal (Bull -> Bear)
+        elif prev_trend == 1 and current_trend == -1:
+            if position:
+                if position.get("side") == "LONG":
+                    state["position"] = None
+                    return StrategySignal(symbol=symbol, action="CLOSE_LONG",
+                                         extra={"reason": "trend_reversal_bearish"})
+            
+            # If no position, enter SHORT
+            risk_dist = abs(current_close - st_value)
+            tp = current_close - (risk_dist * 3)
+            state["position"] = {"side": "SHORT", "entry": current_close}
+            return StrategySignal(symbol=symbol, action="OPEN_SHORT",
+                                 extra={"stop": st_value, "tp": tp, "strategy": "SuperTrend"})
+            
+        # Update trailing stop for existing position
+        if position:
+            if position.get("side") == "LONG" and current_trend == 1:
+                # We could emit a fake "UPDATE" signal but our system doesn't support order mods yet.
+                # Just HOLD.
+                pass
+            elif position.get("side") == "SHORT" and current_trend == -1:
+                pass
+                
+        return StrategySignal(symbol=symbol, action="HOLD")

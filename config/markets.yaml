@@ -1,0 +1,29 @@
+# HOT-Crypto Markets Configuration
+# Define symbol/timeframe pairs to monitor and trade
+
+markets:
+  - symbol: BTC/USDT
+    timeframes:
+      - 4h
+      - 1d
+
+  - symbol: ETH/USDT
+    timeframes:
+      - 4h
+      - 1d
+
+  - symbol: SOL/USDT
+    timeframes:
+      - 4h
+
+  - symbol: AVAX/USDT
+    timeframes:
+      - 4h
+
+# Default timeframe if not specified
+default_timeframe: 4h
+
+# OHLCV fetch settings
+ohlcv:
+  default_limit: 500        # Number of candles to fetch
+  update_interval_minutes: 5  # How often to refresh data

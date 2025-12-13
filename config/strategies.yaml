@@ -1,0 +1,59 @@
+# Strategy Configurations for HOT-Crypto
+# Each strategy can be enabled/disabled and has its own parameters
+
+# Live trading: Only SQZ_BO enabled
+squeeze_breakout:
+  enabled: true
+  symbols: ["BTC/USDT", "ETH/USDT"]
+  timeframe: "4h"
+  params:
+    bb_period: 20
+    std_dev_mult: 2.0
+    atr_period: 14
+    bandwidth_thresh: 0.04      # Squeeze threshold (lower = tighter squeeze)
+    atr_stop_mult: 1.5
+    rr_ratio: 2.0
+    risk_per_trade: 0.005       # 0.5% risk per trade for live
+
+trend_ema:
+  enabled: false
+  symbols: ["BTC/USDT", "ETH/USDT", "SOL/USDT"]
+  timeframe: "1d"
+  params:
+    ema_fast: 20
+    ema_slow: 50
+    atr_period: 14
+    atr_stop_mult: 1.5
+    rr_ratio: 2.0
+    risk_per_trade: 0.01
+
+mean_reversion_bb:
+  enabled: false
+  symbols: ["BTC/USDT", "ETH/USDT", "SOL/USDT"]
+  timeframe: "1h"
+  params:
+    sma_period: 20
+    std_dev_mult: 2.0
+    atr_period: 14
+    atr_stop_mult: 2.0
+    risk_per_trade: 0.01
+
+grid_ladder:
+  enabled: false
+  symbols: ["BTC/USDT", "ETH/USDT", "SOL/USDT"]
+  timeframe: "4h"
+  params:
+    sma_period: 50
+    atr_period: 14
+    levels: 5                   # Number of grid levels
+    step_atr_mult: 0.5          # Distance between levels in ATR units
+    size_per_level: 0.05        # 5% of equity per level
+
+supertrend:
+  enabled: true
+  symbols: ["BTC/USDT", "ETH/USDT"]
+  timeframe: "1d"
+  params:
+    period: 10
+    multiplier: 2.0
+    risk_per_trade: 0.01
