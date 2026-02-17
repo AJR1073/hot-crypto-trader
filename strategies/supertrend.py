@@ -22,26 +22,69 @@ class SuperTrendBacktest(Strategy):
     
     # Parameters
     period = 10
-    multiplier = 3.0
+    multiplier = 2.0
     risk_per_trade = 0.01  # 1% risk per trade
     
     def init(self):
         """Initialize indicators."""
-        high = pd.Series(self.data.High)
-        low = pd.Series(self.data.Low)
-        close = pd.Series(self.data.Close)
+        high = np.array(self.data.High, dtype=float)
+        low = np.array(self.data.Low, dtype=float)
+        close = np.array(self.data.Close, dtype=float)
         
-        # Calculate SuperTrend
-        st_df = SuperTrend(high, low, close, self.period, self.multiplier)
+        # Compute ATR manually (numpy)
+        tr = np.empty(len(close))
+        tr[0] = high[0] - low[0]
+        for i in range(1, len(close)):
+            tr[i] = max(high[i] - low[i], abs(high[i] - close[i-1]), abs(low[i] - close[i-1]))
         
-        # Store indicator lines for plotting
-        self.supertrend = self.I(lambda: st_df['SuperTrend'], name='SuperTrend')
-        self.trend = self.I(lambda: st_df['Trend'], name='Trend')
+        atr = np.full(len(close), np.nan)
+        if len(close) >= self.period:
+            atr[self.period - 1] = np.mean(tr[:self.period])
+            for i in range(self.period, len(close)):
+                atr[i] = (atr[i-1] * (self.period - 1) + tr[i]) / self.period
+        
+        # Compute SuperTrend
+        hl2 = (high + low) / 2
+        basic_upper = hl2 + self.multiplier * atr
+        basic_lower = hl2 - self.multiplier * atr
+        
+        supertrend_arr = np.full(len(close), np.nan)
+        trend_arr = np.full(len(close), np.nan)
+        
+        final_upper = 0.0
+        final_lower = 0.0
+        trend_val = 1
+        
+        for i in range(len(close)):
+            if np.isnan(basic_upper[i]):
+                continue
+                
+            if i == 0 or np.isnan(supertrend_arr[i-1]):
+                final_upper = basic_upper[i]
+                final_lower = basic_lower[i]
+                trend_val = 1
+            else:
+                if basic_upper[i] < final_upper or close[i-1] > final_upper:
+                    final_upper = basic_upper[i]
+                if basic_lower[i] > final_lower or close[i-1] < final_lower:
+                    final_lower = basic_lower[i]
+                    
+                if trend_val == 1 and close[i] < final_lower:
+                    trend_val = -1
+                elif trend_val == -1 and close[i] > final_upper:
+                    trend_val = 1
+            
+            supertrend_arr[i] = final_lower if trend_val == 1 else final_upper
+            trend_arr[i] = float(trend_val)
+        
+        # Register with backtesting.py
+        self.supertrend = self.I(lambda: supertrend_arr, name='SuperTrend', overlay=True)
+        self.trend = self.I(lambda: trend_arr, name='Trend', overlay=False)
         
     def next(self):
         """Process each bar."""
         # Skip if indicators not ready
-        if len(self.data) < self.period:
+        if len(self.data) < self.period + 2:
             return
 
         current_trend = self.trend[-1]
@@ -49,54 +92,44 @@ class SuperTrendBacktest(Strategy):
         current_close = self.data.Close[-1]
         st_value = self.supertrend[-1]
         
+        # Skip if NaN (self.I wraps can produce NaN)
+        if np.isnan(current_trend) or np.isnan(prev_trend) or np.isnan(st_value):
+            return
+        
         # Check for Trend Reversal (Entry Signals)
+        # Compare with < 0 / > 0 instead of == -1 / == 1 (float safety)
         
         # Bullish Reversal (Bear -> Bull)
-        if prev_trend == -1 and current_trend == 1:
+        if prev_trend < 0 and current_trend > 0:
             if self.position.is_short:
                 self.position.close()
             
             if not self.position:
-                # Calculate position size based on risk
-                # Stop loss is the SuperTrend line itself (initial distance)
                 risk_per_share = abs(current_close - st_value)
                 if risk_per_share > 0:
                     risk_dollars = self.equity * self.risk_per_trade
-                    size = risk_dollars / risk_per_share
-                    
-                    # Cap size at 95% equity to leave room for fees
-                    max_size = (self.equity * 0.95) / current_close
-                    size = min(size, max_size)
-                    
-                    self.buy(size=size, sl=st_value)
+                    size_units = risk_dollars / risk_per_share
+                    size_fraction = max(0.01, min(0.50, (size_units * current_close) / self.equity))
+                    self.buy(size=size_fraction, sl=st_value)
         
         # Bearish Reversal (Bull -> Bear)
-        elif prev_trend == 1 and current_trend == -1:
+        elif prev_trend > 0 and current_trend < 0:
             if self.position.is_long:
                 self.position.close()
                 
             if not self.position:
-                # Calculate position size based on risk
                 risk_per_share = abs(current_close - st_value)
                 if risk_per_share > 0:
                     risk_dollars = self.equity * self.risk_per_trade
-                    size = risk_dollars / risk_per_share
-                    
-                    max_size = (self.equity * 0.95) / current_close
-                    size = min(size, max_size)
-                    
-                    self.sell(size=size, sl=st_value)
+                    size_units = risk_dollars / risk_per_share
+                    size_fraction = max(0.01, min(0.50, (size_units * current_close) / self.equity))
+                    self.sell(size=size_fraction, sl=st_value)
         
         # Update trailing stop for existing position
-        if self.position.is_long and current_trend == 1:
-            # For long, SL should only move UP
-            # Backtesting.py handles SL updates if we re-set it? 
-            # Actually, simplest way in Backtesting.py is to verify SL triggers.
-            # But here we want to update the SL to the new ST value.
+        if self.position.is_long and current_trend > 0:
             self.position.sl = st_value
             
-        elif self.position.is_short and current_trend == -1:
-            # For short, SL should only move DOWN
+        elif self.position.is_short and current_trend < 0:
             self.position.sl = st_value
 
 

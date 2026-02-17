@@ -1,9 +1,13 @@
 # Strategy Configurations for HOT-Crypto
-# Each strategy can be enabled/disabled and has its own parameters
+# Refined 2026-02-17 based on backtest results (500 x 4h candles, Nov 2025 - Feb 2026)
+# Key: only enable strategies proven profitable on specific symbols
 
-# Live trading: Only SQZ_BO enabled
+# ============================================================
+# TIER 1 — PROVEN WINNERS (enabled)
+# ============================================================
+
 squeeze_breakout:
-  enabled: true
+  enabled: true  # +3.41% BTC, +2.27% ETH — best all-around
   symbols: ["BTC/USD", "ETH/USD"]
   timeframe: "4h"
   params:
@@ -13,67 +17,11 @@ squeeze_breakout:
     bandwidth_thresh: 0.04      # Squeeze threshold (lower = tighter squeeze)
     atr_stop_mult: 1.5
     rr_ratio: 2.0
-    risk_per_trade: 0.005       # 0.5% risk per trade for live
-
-trend_ema:
-  enabled: false
-  symbols: ["BTC/USD", "ETH/USD", "SOL/USD"]
-  timeframe: "1d"
-  params:
-    ema_fast: 20
-    ema_slow: 50
-    atr_period: 14
-    atr_stop_mult: 1.5
-    rr_ratio: 2.0
-    risk_per_trade: 0.01
-
-mean_reversion_bb:
-  enabled: true  # Best performer on volatile coins: +25.45% on AXS!
-  symbols: ["BTC/USD", "ETH/USD", "AXS/USD", "BONK/USD", "SHIB/USD", "FET/USD", "JUP/USD", "IMX/USD"]
-  timeframe: "4h"
-  params:
-    sma_period: 20
-    std_dev_mult: 2.0
-    atr_period: 14
-    atr_stop_mult: 2.0
-    risk_per_trade: 0.01
-
-grid_ladder:
-  enabled: false
-  symbols: ["BTC/USD", "ETH/USD", "SOL/USD"]
-  timeframe: "4h"
-  params:
-    sma_period: 50
-    atr_period: 14
-    levels: 5                   # Number of grid levels
-    step_atr_mult: 0.5          # Distance between levels in ATR units
-    size_per_level: 0.05        # 5% of equity per level
-
-supertrend:
-  enabled: true
-  symbols: ["BTC/USD", "ETH/USD"]
-  timeframe: "1d"
-  params:
-    period: 10
-    multiplier: 2.0
-    risk_per_trade: 0.01
-
-mean_reversion_scalp:
-  enabled: true
-  symbols: ["BTC/USD"]
-  timeframe: "1m"
-  params:
-    sma_period: 50
-    std_dev_mult: 3.0
-    atr_period: 14
-    atr_stop_mult: 1.5
-    risk_per_trade: 0.005
-
-# New Strategies (backtested +8.20% to -6.28%)
+    risk_per_trade: 0.005       # 0.5% risk per trade
 
 rsi_divergence:
-  enabled: false
-  symbols: ["BTC/USD", "ETH/USD"]
+  enabled: true   # +3.87% BTC with only 8 trades — excellent risk-adjusted
+  symbols: ["BTC/USD"]  # BTC-only: -1.88% on ETH
   timeframe: "4h"
   params:
     rsi_period: 14
@@ -85,8 +33,8 @@ rsi_divergence:
     risk_per_trade: 0.01
 
 macd_crossover:
-  enabled: false
-  symbols: ["BTC/USD", "ETH/USD"]
+  enabled: true   # +4.16% ETH — best single-symbol performer
+  symbols: ["ETH/USD"]  # ETH-only: -3.92% on BTC
   timeframe: "4h"
   params:
     fast_period: 12
@@ -96,10 +44,14 @@ macd_crossover:
     atr_stop_mult: 2.0
     risk_per_trade: 0.01
 
+# ============================================================
+# TIER 2 — MODEST BUT CONSISTENT (enabled)
+# ============================================================
+
 ichimoku:
-  enabled: false
+  enabled: true   # +1.41% BTC, +0.94% ETH — steady
   symbols: ["BTC/USD", "ETH/USD"]
-  timeframe: "1d"
+  timeframe: "4h"  # Changed from 1d to match data
   params:
     tenkan_period: 9
     kijun_period: 26
@@ -107,41 +59,43 @@ ichimoku:
     atr_period: 14
     risk_per_trade: 0.01
 
-vwap_bounce:
-  enabled: false
+supertrend:
+  enabled: true   # FIXED: was 0 trades due to wrong timeframe
   symbols: ["BTC/USD", "ETH/USD"]
-  timeframe: "1h"
+  timeframe: "4h"  # Changed from 1d → 4h to generate trades
   params:
-    ema_period: 50
-    vwap_threshold: 0.002
-    atr_period: 14
-    atr_stop_mult: 1.5
-    risk_per_trade: 0.01
-
-dual_thrust:
-  enabled: false
-  symbols: ["BTC/USD", "ETH/USD"]
-  timeframe: "4h"
-  params:
-    lookback: 4
-    k1: 0.5
-    k2: 0.5
-    atr_period: 14
+    period: 10
+    multiplier: 2.0  # Standard — 3.0 was too wide (0 trades)
     risk_per_trade: 0.01
 
 turtle:
-  enabled: true  # Best performer: +8.20%
+  enabled: true   # +0.21% BTC, +0.36% ETH — trend-following
   symbols: ["BTC/USD", "ETH/USD"]
-  timeframe: "1d"
+  timeframe: "4h"  # Changed from 1d → 4h for faster signals
   params:
-    entry_period: 20
+    entry_period: 15  # Tightened from 20 → 15 for faster detection
     exit_period: 10
     atr_period: 20
     atr_stop_mult: 2.0
     risk_per_trade: 0.01
 
+# ============================================================
+# TIER 3 — TUNED/CONDITIONAL (enabled with fixes)
+# ============================================================
+
+mean_reversion_bb:
+  enabled: true   # Was -3.81% due to over-trading — tightened entry
+  symbols: ["BTC/USD", "ETH/USD"]
+  timeframe: "4h"
+  params:
+    sma_period: 20
+    std_dev_mult: 2.5  # Tightened from 2.0 → 2.5 (require deeper pullback)
+    atr_period: 14
+    atr_stop_mult: 2.0
+    risk_per_trade: 0.008  # Reduced from 0.01 → 0.008
+
 triple_momentum:
-  enabled: true  # Advanced leveraged momentum strategy
+  enabled: true   # Was -1.82% — tightened RSI filter + reduced risk
   symbols: ["BTC/USD", "ETH/USD"]
   timeframe: "4h"
   params:
@@ -152,21 +106,80 @@ triple_momentum:
     stoch_k: 14
     stoch_d: 3
     atr_period: 14
-    trailing_atr_mult: 2.0
-    base_risk: 0.015  # 1.5% base risk with leverage
+    trailing_atr_mult: 2.5  # Wider trailing stop (was 2.0)
+    base_risk: 0.01  # Reduced from 0.015 → 0.01
 
 volatility_hunter:
-  enabled: true  # Optimized for volatile small-caps - FET +18%, JUP +14%
+  enabled: false  # -2.16% — disabled until altcoins added to data
   symbols: ["AXS/USD", "BONK/USD", "SHIB/USD", "FET/USD", "JUP/USD"]
   timeframe: "4h"
   params:
     bb_period: 20
-    bb_std: 3.0  # Extreme bands
+    bb_std: 3.0
     rsi_period: 14
     rsi_oversold: 25
     rsi_overbought: 75
     atr_period: 14
     stop_atr_mult: 1.5
     volume_mult: 1.3
-    base_risk: 0.02  # 2% risk per trade
+    base_risk: 0.02
 
+# ============================================================
+# TIER 4 — DISABLED (proven losers or insufficient data)
+# ============================================================
+
+trend_ema:
+  enabled: false  # -4.42% BTC, +3.13% ETH — inconsistent
+  symbols: ["BTC/USD", "ETH/USD"]
+  timeframe: "4h"
+  params:
+    ema_fast: 20
+    ema_slow: 50
+    atr_period: 14
+    atr_stop_mult: 1.5
+    rr_ratio: 2.0
+    risk_per_trade: 0.01
+
+grid_ladder:
+  enabled: false  # Only 2 trades in 500 bars — not enough signal
+  symbols: ["BTC/USD", "ETH/USD"]
+  timeframe: "4h"
+  params:
+    sma_period: 50
+    atr_period: 14
+    levels: 5
+    step_atr_mult: 0.5
+    size_per_level: 0.05
+
+mean_reversion_scalp:
+  enabled: false  # Need 1m data — disabled for 4h paper trading
+  symbols: ["BTC/USD"]
+  timeframe: "1m"
+  params:
+    sma_period: 50
+    std_dev_mult: 3.0
+    atr_period: 14
+    atr_stop_mult: 1.5
+    risk_per_trade: 0.005
+
+vwap_bounce:
+  enabled: false  # -2.18% BTC, too few trades
+  symbols: ["BTC/USD", "ETH/USD"]
+  timeframe: "1h"
+  params:
+    ema_period: 50
+    vwap_threshold: 0.002
+    atr_period: 14
+    atr_stop_mult: 1.5
+    risk_per_trade: 0.01
+
+dual_thrust:
+  enabled: false  # WORST: -6.65%, 81 trades — chronic over-trader
+  symbols: ["BTC/USD", "ETH/USD"]
+  timeframe: "4h"
+  params:
+    lookback: 4
+    k1: 0.5
+    k2: 0.5
+    atr_period: 14
+    risk_per_trade: 0.01

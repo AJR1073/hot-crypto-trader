@@ -1,0 +1,800 @@
+<!DOCTYPE html>
+<!-- saved from url=(0132)blob:https://19wo5h27673br0uqfi82434ygsejclcknws876t2j2b2chyqya-h868144788.scf.usercontent.goog/2cf6ced0-73ef-494d-97ab-adf2fb201fab -->
+<html lang="en" data-theme="dark"><head><meta http-equiv="Content-Type" content="text/html; charset=UTF-8"><script>
+      function getAccurateHeight() {
+        // A more robust way to get the true height of the content.
+        // Sometimes body.scrollHeight alone is not enough due to CSS collapsing margins
+        // or specific overflow settings on the html element.
+        const body = document.body;
+        const html = document.documentElement;
+
+        return Math.max(
+          body.scrollHeight,
+          body.offsetHeight,
+          html.offsetHeight,
+          html.scrollHeight
+        );
+      }
+
+      function postSize() {
+        const height = getAccurateHeight();
+        const width = document.documentElement.scrollWidth || document.body.scrollWidth;
+
+        if (height > 0 && width > 0) {
+          parent.postMessage({
+              type: 'contentDimensions',
+              height,
+              width
+          }, '*');
+        }
+      }
+
+      function debounce(func, delay = 100) {
+        let timeoutId;
+        return function(...args) {
+          clearTimeout(timeoutId);
+          timeoutId = setTimeout(() => {
+              func.apply(this, args);
+          }, delay);
+        };
+      }
+
+      const debouncedPostSize = debounce(postSize, 60);
+
+      // 1. Send initial size on load
+      window.addEventListener('load', () => {
+        // Force an immediate post on load, then let observer take over
+        postSize();
+        // A delayed follow-up for late-loading fonts/images
+        // that might not trigger observers immediately in some edge cases.
+        setTimeout(postSize, 500);
+
+        // This watches for actual dimensional changes of the body, regardless
+        // of what caused them (CSS, JS, User interaction). We wait for
+        // onload before observing so that the body actually exists.
+        if (window.ResizeObserver) {
+          const resizeObserver = new ResizeObserver(debouncedPostSize);
+          resizeObserver.observe(document.body);
+        }
+        // Fallback for older browsers if necessary
+        else {
+          const observer = new MutationObserver(debouncedPostSize);
+          observer.observe(document.body, {
+              attributes: true, childList: true, subtree: true, characterData: true
+          });
+        }
+      });
+    </script><script>(function() {
+  // Ensure this script is executed only once
+  if (window.firebaseAuthBridgeScriptLoaded) {
+    return;
+  }
+  window.firebaseAuthBridgeScriptLoaded = true;
+
+  let nextTokenPromiseId = 0;
+
+  // Stores { resolve, reject } for ongoing token requests
+  const pendingTokenPromises = {};
+
+  // Listen for messages from the Host Application
+  window.addEventListener('message', function(event) {
+
+    const messageData = event.data;
+
+  if (messageData && messageData.type === 'RESOLVE_NEW_FIREBASE_TOKEN') {
+      const { success, token, error, promiseId } = messageData ?? {};
+      if (pendingTokenPromises[promiseId]) {
+        if (success) {
+          pendingTokenPromises[promiseId].resolve(token);
+        } else {
+          pendingTokenPromises[promiseId].reject(new Error(error || 'Token refresh failed from host.'));
+        }
+        delete pendingTokenPromises[promiseId];
+      }
+    }
+  });
+
+  // Expose a function for the Generated App to request a new Firebase token
+  window.requestNewFirebaseToken = function() {
+    const currentPromiseId = nextTokenPromiseId++;
+    const promise = new Promise((resolve, reject) => {
+      pendingTokenPromises[currentPromiseId] = { resolve, reject };
+    });
+    if (window.parent && window.parent !== window) {
+      window.parent.postMessage({
+        type: 'REQUEST_NEW_FIREBASE_TOKEN',
+        promiseId: currentPromiseId
+      }, '*');
+    } else {
+      pendingTokenPromises[currentPromiseId].reject(new Error('No parent window to request token from.'));
+      delete pendingTokenPromises[currentPromiseId];
+    }
+    return promise;
+  };
+})();</script><script>
+let realOriginalGetUserMedia = null;
+if (navigator.mediaDevices && navigator.mediaDevices.getUserMedia) {
+  realOriginalGetUserMedia = navigator.mediaDevices.getUserMedia.bind(navigator.mediaDevices);
+}
+
+(function() {
+  if (navigator.mediaDevices && navigator.mediaDevices.__proto__) {
+    try {
+      Object.defineProperty(navigator.mediaDevices.__proto__, 'getUserMedia', {
+        get: function() {
+          return undefined; // Or throw an error
+        },
+        configurable: false
+      });
+    } catch (error) {
+      console.error("Error defining prototype getter:", error);
+    }
+  }
+})();
+
+(function() {
+  const pendingMediaResolvers = {};
+  let nextMediaPromiseId = 0;
+
+  function requestMediaPermissions(constraints) {
+    const mediaPromiseId = nextMediaPromiseId++;
+    const promise = new Promise((resolve, reject) => {
+      pendingMediaResolvers[mediaPromiseId] = (granted) => {
+        delete pendingMediaResolvers[mediaPromiseId];
+        resolve(granted);
+      };
+    });
+
+    window.parent.postMessage({
+      type: 'requestMediaPermission',
+      constraints: constraints,
+      promiseId: mediaPromiseId,
+    }, '*');
+
+    return promise;
+  }
+
+  let originalGetUserMedia = realOriginalGetUserMedia;
+
+  function interceptGetUserMedia() {
+    if (navigator.mediaDevices) {
+      Object.defineProperty(navigator.mediaDevices, 'getUserMedia', {
+        value: function(constraints) {
+          return requestMediaPermissions(constraints).then((granted) => {
+            if (granted) {
+              if (originalGetUserMedia) {
+                return originalGetUserMedia(constraints);
+              } else {
+                throw new Error("Original getUserMedia not available.");
+              }
+            } else {
+              throw new DOMException('Permission denied', 'NotAllowedError');
+            }
+          });
+        },
+        writable: false,
+        configurable: false
+      });
+    }
+  }
+
+  interceptGetUserMedia();
+
+  const observer = new MutationObserver(function(mutationsList, observer) {
+    for (const mutation of mutationsList) {
+      if (mutation.type === 'reconfigured' && mutation.name === 'getUserMedia' && mutation.object === navigator.mediaDevices) {
+        interceptGetUserMedia();
+      } else if (mutation.type === 'attributes' && mutation.attributeName === 'getUserMedia' && mutation.target === navigator.mediaDevices) {
+        interceptGetUserMedia();
+      } else if (mutation.type === 'childList' && mutation.addedNodes) {
+        mutation.addedNodes.forEach(node => {
+          if (node === navigator.mediaDevices) {
+            interceptGetUserMedia();
+          }
+        });
+      }
+    }
+  });
+
+  function interceptSpeechRecognition() {
+    if (!window.SpeechRecognition && !window.webkitSpeechRecognition) {
+      return;
+    }
+
+    const OriginalSpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+
+    const SpeechRecognitionWrapper = function(...args) {
+      const recognizer = new OriginalSpeechRecognition(...args);
+      const originalStart = recognizer.start.bind(recognizer);
+
+      recognizer.start = function() {
+        requestMediaPermissions({ audio: true }).then(granted => {
+          if (granted) {
+            originalStart();
+          } else {
+            const errorEvent = new SpeechRecognitionErrorEvent('error');
+            errorEvent.error = 'not-allowed'; // This is the standard error for permission denial.
+            recognizer.dispatchEvent(errorEvent);
+          }
+        });
+      };
+
+      return recognizer;
+    };
+
+    SpeechRecognitionWrapper.prototype = OriginalSpeechRecognition.prototype;
+    SpeechRecognitionWrapper.prototype.constructor = SpeechRecognitionWrapper;
+
+    if (window.SpeechRecognition) {
+      window.SpeechRecognition = SpeechRecognitionWrapper;
+    }
+    if (window.webkitSpeechRecognition) {
+      window.webkitSpeechRecognition = SpeechRecognitionWrapper;
+    }
+  }
+
+  interceptSpeechRecognition();
+
+  window.addEventListener('message', function(event) {
+    if (event.data) {
+      if (event.data.type === 'resolveMediaPermission') {
+        const { promiseId, granted } = event.data;
+        if (pendingMediaResolvers[promiseId]) {
+          pendingMediaResolvers[promiseId](granted);
+        }
+      }
+    }
+  });
+
+})();</script><script>((function(modelInformation) {
+  const originalFetch = window.fetch;
+  // TODO: b/421908508 - Move these out of the script and match all generative AI model calls.
+  let googleLlmBaseApiUrls = [
+    'https://generativelanguage.googleapis.com/v1beta/models/' + modelInformation.textModelName + ':streamGenerateContent',
+    'https://generativelanguage.googleapis.com/v1beta/models/' + modelInformation.textModelName + ':generateContent',
+    'https://generativelanguage.googleapis.com/v1beta/models/' + modelInformation.imageModelName + ':predict',
+    'https://generativelanguage.googleapis.com/v1beta/models/' + modelInformation.imageModelName + ':predictLongRunning',
+    'https://generativelanguage.googleapis.com/v1beta/models/' + modelInformation.imageEditModelName + ':generateContent',
+    'https://generativelanguage.googleapis.com/v1beta/models/' + modelInformation.imageTransformModelName + ':generateContent',
+    'https://generativelanguage.googleapis.com/v1beta/models/' + modelInformation.videoModelName + ':predict',
+    'https://generativelanguage.googleapis.com/v1beta/models/' + modelInformation.videoModelName + ':predictLongRunning',
+    'https://generativelanguage.googleapis.com/v1beta/models/' + modelInformation.ttsModelName + ':generateContent',
+  ];
+  modelInformation.deprecatedTextModelNames.forEach((modelName) => {
+    googleLlmBaseApiUrls.push(
+      'https://generativelanguage.googleapis.com/v1beta/models/' + modelName + ':streamGenerateContent',
+      'https://generativelanguage.googleapis.com/v1beta/models/' + modelName + ':generateContent',
+    );
+  });
+  modelInformation.deprecatedImageModelNames.forEach((modelName) => {
+    googleLlmBaseApiUrls.push(
+      'https://generativelanguage.googleapis.com/v1beta/models/' + modelName + ':predict',
+      'https://generativelanguage.googleapis.com/v1beta/models/' + modelName + ':predictLongRunning',
+    );
+  });
+
+  const pendingFetchResolvers = {};
+  let nextPromiseId = 0;
+
+  function handleStringInput(input, optionsArgument) {
+    const actualUrl = input;
+    const fetchCallArgs = [actualUrl, optionsArgument];
+    const effectiveOptions = optionsArgument || {};
+    const bodyForApiKeyCheck = effectiveOptions.body;
+    const bodyForPostMessage = effectiveOptions.body;
+    return { actualUrl, fetchCallArgs, effectiveOptions, bodyForApiKeyCheck, bodyForPostMessage };
+  }
+
+  function handleRequestInput(input, optionsArgument) {
+    const actualUrl = input.url;
+    const fetchCallArgs = [input, optionsArgument];
+    const effectiveOptions = { method: input.method, headers: new Headers(input.headers) };
+    let bodyForApiKeyCheck;
+    let bodyForPostMessage;
+
+    if (optionsArgument) {
+      if (optionsArgument.method) effectiveOptions.method = optionsArgument.method;
+      if (optionsArgument.headers) effectiveOptions.headers = new Headers(optionsArgument.headers);
+      if ('body' in optionsArgument) {
+        bodyForApiKeyCheck = optionsArgument.body;
+        bodyForPostMessage = optionsArgument.body;
+      } else {
+        bodyForApiKeyCheck = undefined;
+        bodyForPostMessage = input.body;
+      }
+    } else {
+      bodyForApiKeyCheck = undefined;
+      bodyForPostMessage = input.body;
+    }
+    return { actualUrl, fetchCallArgs, effectiveOptions, bodyForApiKeyCheck, bodyForPostMessage };
+  }
+
+  window.fetch = function(input, optionsArgument) {
+    let actualUrl;
+    let fetchCallArgs;
+    let effectiveOptions = {};
+    let bodyForApiKeyCheck;
+    let bodyForPostMessage;
+
+    if (typeof input === 'string') {
+      ({actualUrl, fetchCallArgs, effectiveOptions, bodyForApiKeyCheck, bodyForPostMessage} = handleStringInput(input, optionsArgument));
+    } else if (input instanceof Request) {
+      ({actualUrl, fetchCallArgs, effectiveOptions, bodyForApiKeyCheck, bodyForPostMessage} = handleRequestInput(input, optionsArgument));
+    } else {
+      return originalFetch.apply(window, [input, optionsArgument]);
+    }
+
+    effectiveOptions.method = effectiveOptions.method || 'GET';
+    if (!effectiveOptions.headers) {
+      effectiveOptions.headers = new Headers();
+    }
+
+
+    if (typeof actualUrl === 'string' && googleLlmBaseApiUrls.some((url) => actualUrl.startsWith(url))) {
+      let apiKeyIsNull = true;
+
+      const regex = new RegExp("models/([^:]+)");
+      const modelNameMatch = actualUrl.match(regex);
+      const modelName = modelNameMatch ? modelNameMatch[1] : 'unspecified';
+
+
+      try {
+        const urlObject = new URL(actualUrl);  // Use URL object for robust parsing
+        const apiKeyParam = urlObject.searchParams.get('key');
+        if (apiKeyParam) {
+          apiKeyIsNull = false;
+        }
+      } catch (e) {
+        // Continue checks even if URL parsing fails
+      }
+
+      if (apiKeyIsNull && effectiveOptions.headers) {
+        const h = new Headers(effectiveOptions.headers);
+        const apiKeyHeaderValue = h.get('X-API-Key') || h.get('x-api-key');
+        if (apiKeyHeaderValue) {
+          apiKeyIsNull = false;
+          return originalFetch.apply(window, fetchCallArgs);
+        }
+      }
+
+      if (apiKeyIsNull && effectiveOptions.method && ['POST', 'PUT', 'PATCH'].includes(effectiveOptions.method.toUpperCase()) && typeof bodyForApiKeyCheck === 'string') {
+        try {
+          const bodyData = JSON.parse(bodyForApiKeyCheck);
+          if (bodyData && bodyData.apiKey) {
+            apiKeyIsNull = false;
+            return originalFetch.apply(window, fetchCallArgs);
+          }
+        } catch (e) {
+          // Ignore JSON parsing errors
+        }
+      }
+
+      if(apiKeyIsNull) {
+        const promiseId = nextPromiseId++;
+        const promise = new Promise((resolve) => {
+          pendingFetchResolvers[promiseId] = (resolvedResponse) => {
+            delete pendingFetchResolvers[promiseId];
+            resolve(resolvedResponse);
+          };
+        });
+
+        let serializedBodyForPostMessage;
+        if (typeof bodyForPostMessage === 'string' || bodyForPostMessage == null) {
+            serializedBodyForPostMessage = bodyForPostMessage;
+        } else if (bodyForPostMessage instanceof ReadableStream) {
+            serializedBodyForPostMessage = null;
+        } else {
+            try {
+                serializedBodyForPostMessage = JSON.stringify(bodyForPostMessage);
+            } catch (e) {
+                serializedBodyForPostMessage = null;
+            }
+        }
+
+        const messageOptions = {
+            method: effectiveOptions.method,
+            headers: Object.fromEntries(new Headers(effectiveOptions.headers).entries()),
+            body: serializedBodyForPostMessage
+        };
+
+        window.parent.postMessage({
+          type: 'requestFetch',
+          url: actualUrl,
+          modelName: modelName,
+          options: messageOptions,
+          promiseId: promiseId,
+        }, '*');
+
+        return promise;
+      }
+      return originalFetch.apply(window, fetchCallArgs);
+    }
+    return originalFetch.apply(window, fetchCallArgs);
+  };
+
+  window.addEventListener('message', function(event) {
+    if (event.data && event.data.type === 'resolveFetch') {
+      const { promiseId, response } = event.data;
+      if (pendingFetchResolvers[promiseId]) {
+        try {
+          const reconstructedResponse = new Response(response.body, {
+            status: response.status,
+            statusText: response.statusText,
+            headers: new Headers(response.headers),
+          });
+          pendingFetchResolvers[promiseId](reconstructedResponse);
+        } catch (error) {
+          pendingFetchResolvers[promiseId](new Response(null, { status: 500, statusText: "Interceptor Response Reconstruction Error" }));
+        }
+      }
+    }
+  });
+
+}))({"textModelName":"gemini-2.5-flash-preview-09-2025","imageModelName":"imagen-4.0-generate-001","imageEditModelName":"gemini-2.5-flash-image-preview","imageTransformModelName":"gemini-3-pro-image-preview-11-2025","videoModelName":"veo-2.0-generate-001","ttsModelName":"gemini-2.5-flash-preview-tts","deprecatedTextModelNames":["gemini-2.0-flash","gemini-2.5-flash-preview-04-17","gemini-2.5-flash-preview-05-20"],"deprecatedImageModelNames":["imagen-3.0-generate-001","imagen-3.0-generate-002"]})</script><script>(function(){'use strict';function a(){window.parent.postMessage({type:"interaction"},"*")}window.addEventListener("click",a,{capture:!0,passive:!0});window.addEventListener("touchstart",a,{capture:!0,passive:!0});window.addEventListener("keydown",a,{capture:!0,passive:!0});}).call(this);
+</script><script>(function() {
+  const originalConsoleLog = console.log;
+  const originalConsoleError = console.error;
+
+    /**
+   * Normalizes an error event or a promise rejection reason into a structured error object.
+   * @param {*} errorEventOrReason The error object or reason.
+   * @return {object} Structured error data { message, name, stack }.
+   */
+  function getErrorObject(errorEventOrReason) {
+    if (errorEventOrReason instanceof Error) {
+      return {
+        message: errorEventOrReason.message,
+        name: errorEventOrReason.name,
+        stack: errorEventOrReason.stack,
+      };
+    }
+    // Fallback for non-Error objects.
+    try {
+      return {
+        message: JSON.stringify(errorEventOrReason),
+        name: 'UnknownErrorType',
+        stack: null,
+      };
+    } catch (e) {
+      return {
+        message: String(errorEventOrReason),
+        name: 'UnknownErrorTypeNonStringifiable',
+        stack: null,
+      };
+    }
+  }
+
+  /**
+   * Converts an array of arguments (from log/error) into a single string.
+   * Handles Error objects specially to include their message and stack.
+   * @param {Array<*>} args - Arguments passed to console methods.
+   * @return {string} A string representation of the arguments.
+   */
+  function stringifyArgs(args) {
+    return args
+      .map((arg) => {
+        if (arg instanceof Error) {
+          const {message, stack} = arg;
+          return `Error: ${message}${stack ? ('\nStack: ' + stack) : ''}`;
+        }
+        if (typeof arg === 'object' && arg !== null) {
+          try {
+            return JSON.stringify(arg);
+          } catch (error) {
+            return '[Circular Object]';
+          }
+        } else {
+          return String(arg);
+        }
+      })
+      .join(' ');
+  }
+
+  console.log = function(...args) {
+    const logString = stringifyArgs(args);
+    window.parent.postMessage({ type: 'log', message: logString }, '*');
+    originalConsoleLog.apply(console, args);
+  };
+
+  console.error = function(...args) {
+    let errorData;
+    if (args.length > 0 && args[0] instanceof Error) {
+      const err = args[0];
+      // If the first arg is an Error, capture its details.
+      errorData = {
+        type: 'error',
+        source: 'CONSOLE_ERROR',
+        ...getErrorObject(err),
+        rawArgsString: stringifyArgs(args.slice(1)),
+        timestamp: new Date().toISOString(),
+      };
+    } else {
+      // If not an Error object, treat all args as a general error message.
+      errorData = {
+        type: 'error',
+        source: 'CONSOLE_ERROR',
+        message: stringifyArgs(args),
+        name: 'ConsoleLoggedError',
+        stack: null,
+        timestamp: new Date().toISOString(),
+      };
+    }
+    window.parent.postMessage(errorData, '*');
+    originalConsoleError.apply(console, args);
+  };
+
+  // Listen for global unhandled synchronous errors.
+  window.addEventListener('error', function(event) {
+    const errorDetails = event.error ? getErrorObject(event.error) : {
+      message: event.message,
+      name: 'GlobalError',
+      stack: null,
+      filename: event.filename,
+      lineno: event.lineno,
+      colno: event.colno,
+    };
+
+    window.parent.postMessage({
+      type: 'error',
+      source: 'global',
+      ...errorDetails,
+      message: errorDetails.message || event.message,
+      timestamp: new Date().toISOString(),
+    }, '*');
+  });
+
+  // Listen for unhandled promise rejections (asynchronous errors).
+  window.addEventListener('unhandledrejection', function(event) {
+    const errorDetails = getErrorObject(event.reason);
+
+    window.parent.postMessage({
+      type: 'error',
+      source: 'unhandledrejection',
+      ...errorDetails,
+      message: errorDetails.message || 'Unhandled Promise Rejection',
+      timestamp: new Date().toISOString(),
+    }, '*');
+  });
+
+})();</script><script>((function(theme) {
+    function applyTheme(theme) {
+      const root = document.querySelector(':root');
+      if (root) {
+        root.dataset['theme'] = theme;
+      }
+    }
+
+    // Listen for messages from the parent window.
+    window.addEventListener("message", (event) => {
+      if (event.data && event.data.type === 'APPLY_THEME' && (event.data.theme === "light" || event.data.theme === "dark")) {
+        applyTheme(event.data.theme);
+      }
+    });
+
+    if (theme) {
+      applyTheme(theme);
+    }
+  }))("dark")</script>
+    
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Market Regime Classification &amp; Strategy Activation</title>
+
+    <link rel="preconnect" href="https://fonts.googleapis.com/">
+    <link rel="preconnect" href="https://fonts.gstatic.com/" crossorigin="">
+    <link href="https://fonts.googleapis.com/css2?family=Open+Sans:wght@400;500;700&amp;display=swap" rel="stylesheet">
+
+    <!-- ALWAYS LOAD tailwind from reliable CDN here-->
+    <script src="https://cdn.tailwindcss.com/"></script>
+
+    <!-- NO EXTERNAL CHART LIBRARY NEEDED FOR PURE HTML TABLE -->
+
+    <style>
+      /* Define Google Sans - The Primary Font */
+      @font-face {
+          font-family: "Google Sans";
+          src: url("https://fonts.gstatic.com/s/googlesans/v58/4UaRrENHsxJlGDuGo1OIlJfC6l_24rlCK1Yo_Iq2vgCI.woff2") format("woff2");
+          font-weight: 400; font-style: normal; font-display: swap;
+      }
+
+      /* Theme Variables - Source of Truth */
+      :root, html[data-theme="light"] {
+          /* --- Core Surface & Text Colors --- */
+          --surface-color: #FFFFFF;
+          --on-surface: #1B1C1D;
+          --on-surface-variant: #575B5F;
+          --on-surface-low: #727676;
+
+          /* Outline colors --- */
+          --outline: #747775;
+          --outline-variant: #C4C7C5;
+
+          /* Illustration colors */
+          --google-blue: #1A73E8;
+          --cyan: #12B5CB;
+          --magenta: #F538A0;
+          --tangerine: #FA903E;
+          --lavender: #C58AF9;
+          --mint-green: #81C995;
+          --red: #D93025;
+          --yellow: #FCC934;
+
+          /* Status Colors for Table Badges */
+          --status-green-bg: #E6F4EA;
+          --status-green-text: #137333;
+          --status-orange-bg: #FEF7E0;
+          --status-orange-text: #B06000;
+          --status-gray-bg: #F1F3F4;
+          --status-gray-text: #5F6368;
+      }
+      html[data-theme="dark"] {
+          /* --- Core Surface & Text Colors --- */
+          --surface-color: #141414;
+          --on-surface: #FFFFFF;
+          --on-surface-variant: #A2A9B0;
+          --on-surface-low: #9A9B9C;
+
+          /* Outline colors --- */
+          --outline: #9A9B9C;
+          --outline-variant: #4A5050;
+
+          /* Illustration colors */
+          --google-blue: #1A73E8;
+          --cyan: #12B5CB;
+          --magenta: #F538A0;
+          --tangerine: #FA903E;
+          --lavender: #C58AF9;
+          --mint-green: #81C995;
+          --red: #D93025;
+          --yellow: #FCC934;
+
+          /* Status Colors for Table Badges (Dark Mode) */
+          --status-green-bg: #137333;
+          --status-green-text: #E6F4EA;
+          --status-orange-bg: #B06000;
+          --status-orange-text: #FEF7E0;
+          --status-gray-bg: #5F6368;
+          --status-gray-text: #F1F3F4;
+      }
+
+      /* Hide scroll bar */
+      @media (pointer: fine) {
+          ::-webkit-scrollbar, ::-webkit-scrollbar-corner {
+              background: transparent;
+              height: 12px;
+              width: 12px;
+          }
+      }
+    </style>
+    <script>
+      tailwind.config = {
+        darkMode: ['class', '[data-theme="dark"]'],
+        theme: {
+          extend: {
+            fontFamily: { sans: ['"Google Sans"', '"Open Sans"', 'sans-serif'] },
+            colors: {
+              surface: 'var(--surface-color)',
+              'on-surface': 'var(--on-surface)',
+              'on-surface-variant': 'var(--on-surface-variant)',
+              outline: 'var(--outline)',
+              'outline-variant': 'var(--outline-variant)',
+              'status-green-bg': 'var(--status-green-bg)',
+              'status-green-text': 'var(--status-green-text)',
+              'status-orange-bg': 'var(--status-orange-bg)',
+              'status-orange-text': 'var(--status-orange-text)',
+              'status-gray-bg': 'var(--status-gray-bg)',
+              'status-gray-text': 'var(--status-gray-text)',
+            }
+          }
+        }
+      }
+    </script>
+  <style>*, ::before, ::after{--tw-border-spacing-x:0;--tw-border-spacing-y:0;--tw-translate-x:0;--tw-translate-y:0;--tw-rotate:0;--tw-skew-x:0;--tw-skew-y:0;--tw-scale-x:1;--tw-scale-y:1;--tw-pan-x: ;--tw-pan-y: ;--tw-pinch-zoom: ;--tw-scroll-snap-strictness:proximity;--tw-gradient-from-position: ;--tw-gradient-via-position: ;--tw-gradient-to-position: ;--tw-ordinal: ;--tw-slashed-zero: ;--tw-numeric-figure: ;--tw-numeric-spacing: ;--tw-numeric-fraction: ;--tw-ring-inset: ;--tw-ring-offset-width:0px;--tw-ring-offset-color:#fff;--tw-ring-color:rgb(59 130 246 / 0.5);--tw-ring-offset-shadow:0 0 #0000;--tw-ring-shadow:0 0 #0000;--tw-shadow:0 0 #0000;--tw-shadow-colored:0 0 #0000;--tw-blur: ;--tw-brightness: ;--tw-contrast: ;--tw-grayscale: ;--tw-hue-rotate: ;--tw-invert: ;--tw-saturate: ;--tw-sepia: ;--tw-drop-shadow: ;--tw-backdrop-blur: ;--tw-backdrop-brightness: ;--tw-backdrop-contrast: ;--tw-backdrop-grayscale: ;--tw-backdrop-hue-rotate: ;--tw-backdrop-invert: ;--tw-backdrop-opacity: ;--tw-backdrop-saturate: ;--tw-backdrop-sepia: ;--tw-contain-size: ;--tw-contain-layout: ;--tw-contain-paint: ;--tw-contain-style: }::backdrop{--tw-border-spacing-x:0;--tw-border-spacing-y:0;--tw-translate-x:0;--tw-translate-y:0;--tw-rotate:0;--tw-skew-x:0;--tw-skew-y:0;--tw-scale-x:1;--tw-scale-y:1;--tw-pan-x: ;--tw-pan-y: ;--tw-pinch-zoom: ;--tw-scroll-snap-strictness:proximity;--tw-gradient-from-position: ;--tw-gradient-via-position: ;--tw-gradient-to-position: ;--tw-ordinal: ;--tw-slashed-zero: ;--tw-numeric-figure: ;--tw-numeric-spacing: ;--tw-numeric-fraction: ;--tw-ring-inset: ;--tw-ring-offset-width:0px;--tw-ring-offset-color:#fff;--tw-ring-color:rgb(59 130 246 / 0.5);--tw-ring-offset-shadow:0 0 #0000;--tw-ring-shadow:0 0 #0000;--tw-shadow:0 0 #0000;--tw-shadow-colored:0 0 #0000;--tw-blur: ;--tw-brightness: ;--tw-contrast: ;--tw-grayscale: ;--tw-hue-rotate: ;--tw-invert: ;--tw-saturate: ;--tw-sepia: ;--tw-drop-shadow: ;--tw-backdrop-blur: ;--tw-backdrop-brightness: ;--tw-backdrop-contrast: ;--tw-backdrop-grayscale: ;--tw-backdrop-hue-rotate: ;--tw-backdrop-invert: ;--tw-backdrop-opacity: ;--tw-backdrop-saturate: ;--tw-backdrop-sepia: ;--tw-contain-size: ;--tw-contain-layout: ;--tw-contain-paint: ;--tw-contain-style: }/* ! tailwindcss v3.4.17 | MIT License | https://tailwindcss.com */*,::after,::before{box-sizing:border-box;border-width:0;border-style:solid;border-color:#e5e7eb}::after,::before{--tw-content:''}:host,html{line-height:1.5;-webkit-text-size-adjust:100%;-moz-tab-size:4;tab-size:4;font-family:"Google Sans", "Open Sans", sans-serif;font-feature-settings:normal;font-variation-settings:normal;-webkit-tap-highlight-color:transparent}body{margin:0;line-height:inherit}hr{height:0;color:inherit;border-top-width:1px}abbr:where([title]){-webkit-text-decoration:underline dotted;text-decoration:underline dotted}h1,h2,h3,h4,h5,h6{font-size:inherit;font-weight:inherit}a{color:inherit;text-decoration:inherit}b,strong{font-weight:bolder}code,kbd,pre,samp{font-family:ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;font-feature-settings:normal;font-variation-settings:normal;font-size:1em}small{font-size:80%}sub,sup{font-size:75%;line-height:0;position:relative;vertical-align:baseline}sub{bottom:-.25em}sup{top:-.5em}table{text-indent:0;border-color:inherit;border-collapse:collapse}button,input,optgroup,select,textarea{font-family:inherit;font-feature-settings:inherit;font-variation-settings:inherit;font-size:100%;font-weight:inherit;line-height:inherit;letter-spacing:inherit;color:inherit;margin:0;padding:0}button,select{text-transform:none}button,input:where([type=button]),input:where([type=reset]),input:where([type=submit]){-webkit-appearance:button;background-color:transparent;background-image:none}:-moz-focusring{outline:auto}:-moz-ui-invalid{box-shadow:none}progress{vertical-align:baseline}::-webkit-inner-spin-button,::-webkit-outer-spin-button{height:auto}[type=search]{-webkit-appearance:textfield;outline-offset:-2px}::-webkit-search-decoration{-webkit-appearance:none}::-webkit-file-upload-button{-webkit-appearance:button;font:inherit}summary{display:list-item}blockquote,dd,dl,figure,h1,h2,h3,h4,h5,h6,hr,p,pre{margin:0}fieldset{margin:0;padding:0}legend{padding:0}menu,ol,ul{list-style:none;margin:0;padding:0}dialog{padding:0}textarea{resize:vertical}input::placeholder,textarea::placeholder{opacity:1;color:#9ca3af}[role=button],button{cursor:pointer}:disabled{cursor:default}audio,canvas,embed,iframe,img,object,svg,video{display:block;vertical-align:middle}img,video{max-width:100%;height:auto}[hidden]:where(:not([hidden=until-found])){display:none}.relative{position:relative}.m-0{margin:0px}.mb-0{margin-bottom:0px}.mt-3{margin-top:0.75rem}.flex{display:flex}.inline-flex{display:inline-flex}.w-full{width:100%}.max-w-\[800px\]{max-width:800px}.border-collapse{border-collapse:collapse}.flex-col{flex-direction:column}.items-center{align-items:center}.justify-center{justify-content:center}.gap-3{gap:0.75rem}.gap-8{gap:2rem}.divide-y > :not([hidden]) ~ :not([hidden]){--tw-divide-y-reverse:0;border-top-width:calc(1px * calc(1 - var(--tw-divide-y-reverse)));border-bottom-width:calc(1px * var(--tw-divide-y-reverse))}.divide-outline-variant > :not([hidden]) ~ :not([hidden]){border-color:var(--outline-variant)}.overflow-hidden{overflow:hidden}.rounded-full{border-radius:9999px}.rounded-lg{border-radius:0.5rem}.border{border-width:1px}.border-b{border-bottom-width:1px}.border-outline-variant{border-color:var(--outline-variant)}.bg-status-gray-bg{background-color:var(--status-gray-bg)}.bg-status-green-bg{background-color:var(--status-green-bg)}.bg-status-orange-bg{background-color:var(--status-orange-bg)}.bg-surface{background-color:var(--surface-color)}.p-4{padding:1rem}.px-2\.5{padding-left:0.625rem;padding-right:0.625rem}.px-4{padding-left:1rem;padding-right:1rem}.py-0\.5{padding-top:0.125rem;padding-bottom:0.125rem}.py-3{padding-top:0.75rem;padding-bottom:0.75rem}.py-4{padding-top:1rem;padding-bottom:1rem}.text-left{text-align:left}.text-right{text-align:right}.font-sans{font-family:"Google Sans", "Open Sans", sans-serif}.text-3xl{font-size:1.875rem;line-height:2.25rem}.text-sm{font-size:0.875rem;line-height:1.25rem}.text-xs{font-size:0.75rem;line-height:1rem}.font-bold{font-weight:700}.font-medium{font-weight:500}.font-normal{font-weight:400}.font-semibold{font-weight:600}.uppercase{text-transform:uppercase}.italic{font-style:italic}.leading-relaxed{line-height:1.625}.leading-tight{line-height:1.25}.tracking-wider{letter-spacing:0.05em}.text-on-surface{color:var(--on-surface)}.text-on-surface-variant{color:var(--on-surface-variant)}.text-status-gray-text{color:var(--status-gray-text)}.text-status-green-text{color:var(--status-green-text)}.text-status-orange-text{color:var(--status-orange-text)}.opacity-80{opacity:0.8}.transition-colors{transition-property:color, background-color, border-color, fill, stroke, -webkit-text-decoration-color;transition-property:color, background-color, border-color, text-decoration-color, fill, stroke;transition-property:color, background-color, border-color, text-decoration-color, fill, stroke, -webkit-text-decoration-color;transition-timing-function:cubic-bezier(0.4, 0, 0.2, 1);transition-duration:150ms}.\[\&_a\]\:text-inherit a{color:inherit}.\[\&_a\]\:underline a{-webkit-text-decoration-line:underline;text-decoration-line:underline}</style></head>
+  <body class="font-sans bg-surface text-on-surface m-0 p-4 flex justify-center w-full">
+    <figure class="w-full max-w-[800px] flex flex-col gap-8">
+      <div class="mb-0">
+        <h3 class="text-3xl font-normal text-on-surface leading-tight">
+          Market Regime Classification &amp; Strategy Activation
+        </h3>
+      </div>
+
+      <!-- Visualization Container -->
+      <div id="viz-container" class="relative w-full flex flex-col">
+        <!-- Logic Matrix Table -->
+        <div class="w-full overflow-hidden border border-outline-variant rounded-lg">
+          <table class="w-full text-left border-collapse">
+            <thead>
+              <tr class="bg-surface border-b border-outline-variant">
+                <th class="py-3 px-4 text-xs font-semibold uppercase tracking-wider text-on-surface-variant">Regime</th>
+                <th class="py-3 px-4 text-xs font-semibold uppercase tracking-wider text-on-surface-variant">Hurst (H) Threshold</th>
+                <th class="py-3 px-4 text-xs font-semibold uppercase tracking-wider text-on-surface-variant">ADX Threshold</th>
+                <th class="py-3 px-4 text-xs font-semibold uppercase tracking-wider text-on-surface-variant">Active Strategies</th>
+                <th class="py-3 px-4 text-xs font-semibold uppercase tracking-wider text-on-surface-variant text-right">Allocation</th>
+              </tr>
+            </thead>
+            <tbody class="divide-y divide-outline-variant">
+              <!-- Row 1: Trending (Strong) -->
+              <tr class="bg-surface hover:bg-outline-variant/10 transition-colors">
+                <td class="py-4 px-4">
+                  <span class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-status-green-bg text-status-green-text">
+                    Trending (Strong)
+                  </span>
+                </td>
+                <td class="py-4 px-4 text-sm text-on-surface font-medium">H &gt; 0.60</td>
+                <td class="py-4 px-4 text-sm text-on-surface font-medium">ADX &gt; 25</td>
+                <td class="py-4 px-4 text-sm text-on-surface-variant">Trend Following (EMA, Supertrend)</td>
+                <td class="py-4 px-4 text-sm text-on-surface font-bold text-right">80%</td>
+              </tr>
+
+              <!-- Row 2: Trending (Weak) -->
+              <tr class="bg-surface hover:bg-outline-variant/10 transition-colors">
+                <td class="py-4 px-4">
+                  <span class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-status-green-bg text-status-green-text opacity-80">
+                    Trending (Weak)
+                  </span>
+                </td>
+                <td class="py-4 px-4 text-sm text-on-surface font-medium">H &gt; 0.55</td>
+                <td class="py-4 px-4 text-sm text-on-surface font-medium">ADX &gt; 20</td>
+                <td class="py-4 px-4 text-sm text-on-surface-variant">Hybrid</td>
+                <td class="py-4 px-4 text-sm text-on-surface font-bold text-right">50%</td>
+              </tr>
+
+              <!-- Row 3: Mean Reverting -->
+              <tr class="bg-surface hover:bg-outline-variant/10 transition-colors">
+                <td class="py-4 px-4">
+                  <span class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-status-orange-bg text-status-orange-text">
+                    Mean Reverting
+                  </span>
+                </td>
+                <td class="py-4 px-4 text-sm text-on-surface font-medium">H &lt; 0.45</td>
+                <td class="py-4 px-4 text-sm text-on-surface font-medium">ADX &lt; 20</td>
+                <td class="py-4 px-4 text-sm text-on-surface-variant">Bollinger / RSI</td>
+                <td class="py-4 px-4 text-sm text-on-surface font-bold text-right">80%</td>
+              </tr>
+
+              <!-- Row 4: Random Walk -->
+              <tr class="bg-surface hover:bg-outline-variant/10 transition-colors">
+                <td class="py-4 px-4">
+                  <span class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-status-gray-bg text-status-gray-text">
+                    Random Walk
+                  </span>
+                </td>
+                <td class="py-4 px-4 text-sm text-on-surface font-medium">0.45 &lt; H &lt; 0.55</td>
+                <td class="py-4 px-4 text-sm text-on-surface font-medium">Any</td>
+                <td class="py-4 px-4 text-sm text-on-surface-variant">Grid / Cash</td>
+                <td class="py-4 px-4 text-sm text-on-surface font-bold text-right">100% Cash/Grid</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+        
+        <!-- Footnote -->
+        <div class="mt-3 text-xs text-on-surface-variant italic">
+          * Note: Rolling window sizes are recommended at n=100 for Hurst Exponent calculations.
+        </div>
+      </div>
+
+      <figcaption class="flex flex-col gap-3">
+        <span id="caption-text" class="text-sm text-on-surface-variant leading-relaxed">
+          The table defines four distinct market regimes based on the interaction between the Hurst Exponent (H) and the Average Directional Index (ADX). Strategy allocation weights are dynamic, shifting capital to the most probable winning strategies for the current environment.
+        </span>
+        <div class="text-xs text-on-surface-variant [&amp;_a]:underline [&amp;_a]:text-inherit">
+          Data sources: <a href="https://www.tradingview.com/scripts/technicalanalysis/page-3/" target="_blank" rel="noopener noreferrer">TradingView</a>, <a href="https://derivvaluation.medium.com/hurst-exponent-applications-from-regime-analysis-to-arbitrage-3e54e1d03c6f" target="_blank" rel="noopener noreferrer">Medium (Deriv Valuation)</a>, <a href="https://www.samara-am.com/insights/hurst-exponent" target="_blank" rel="noopener noreferrer">Samara Asset Management</a>
+        </div>
+      </figcaption>
+    </figure>
+
+    <script>
+      // Theme Listener
+      window.addEventListener("message", (event) => {
+        if (event.data && (event.data.theme === "light" || event.data.theme === "dark")) {
+          document.documentElement.setAttribute("data-theme", event.data.theme);
+        }
+      });
+
+      // Race Condition Fix: Wait for fonts
+      document.fonts.ready.then(() => {
+         // No JS initialization needed for static HTML table
+      });
+    </script>
+  
+</body></html>
