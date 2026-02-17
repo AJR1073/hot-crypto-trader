@@ -183,3 +183,50 @@ dual_thrust:
     k2: 0.5
     atr_period: 14
     risk_per_trade: 0.01
+
+# ============================================================
+# TIER 5 — DEEP RESEARCH STRATEGIES (new, testing)
+# ============================================================
+
+velociraptor:
+  enabled: true  # NEW: EMA(20/50) + ADX>25 + VWAP filter
+  symbols: ["BTC/USD", "ETH/USD"]
+  timeframe: "4h"
+  params:
+    ema_fast: 20
+    ema_slow: 50
+    adx_period: 14
+    adx_threshold: 25
+    atr_period: 14
+    atr_stop_mult: 2.0
+    rr_ratio: 2.5
+    risk_per_trade: 0.01
+
+rubber_band:
+  enabled: true  # NEW: BB(2.5σ) + RSI confirmation mean reversion
+  symbols: ["BTC/USD", "ETH/USD"]
+  timeframe: "4h"
+  params:
+    sma_period: 20
+    std_dev_mult: 2.5
+    rsi_period: 14
+    rsi_oversold: 30
+    rsi_overbought: 70
+    atr_period: 14
+    atr_stop_mult: 2.0
+    risk_per_trade: 0.01
+
+volatility_squeeze:
+  enabled: true  # NEW: TTM Squeeze (BB inside KC) breakout
+  symbols: ["BTC/USD", "ETH/USD"]
+  timeframe: "4h"
+  params:
+    bb_period: 20
+    bb_std: 2.0
+    kc_ema_period: 20
+    kc_atr_period: 10
+    kc_atr_mult: 1.5
+    atr_period: 14
+    atr_stop_mult: 2.0
+    rr_ratio: 2.0
+    risk_per_trade: 0.01

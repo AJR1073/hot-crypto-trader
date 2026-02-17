@@ -378,3 +378,70 @@ def Stochastic(high: pd.Series, low: pd.Series, close: pd.Series,
     d = k.rolling(window=d_period).mean()
     
     return pd.DataFrame({'k': k, 'd': d})
+
+
+def ADX(high: pd.Series, low: pd.Series, close: pd.Series, period: int = 14) -> pd.Series:
+    """
+    Average Directional Index — measures trend strength (0-100).
+
+    ADX > 25 = strong trend, ADX < 20 = weak/no trend.
+
+    Args:
+        high: High prices
+        low: Low prices
+        close: Close prices
+        period: ADX smoothing period (default 14)
+
+    Returns:
+        ADX series (0-100)
+    """
+    high = pd.Series(high)
+    low = pd.Series(low)
+    close = pd.Series(close)
+
+    plus_dm = high.diff()
+    minus_dm = -low.diff()
+
+    plus_dm = plus_dm.where((plus_dm > minus_dm) & (plus_dm > 0), 0.0)
+    minus_dm = minus_dm.where((minus_dm > plus_dm) & (minus_dm > 0), 0.0)
+
+    atr = ATR(high, low, close, period)
+
+    plus_di = 100 * (plus_dm.ewm(alpha=1/period, min_periods=period).mean() / atr)
+    minus_di = 100 * (minus_dm.ewm(alpha=1/period, min_periods=period).mean() / atr)
+
+    dx = 100 * abs(plus_di - minus_di) / (plus_di + minus_di)
+    adx = dx.ewm(alpha=1/period, min_periods=period).mean()
+    return adx
+
+
+def KeltnerChannel(high: pd.Series, low: pd.Series, close: pd.Series,
+                   ema_period: int = 20, atr_period: int = 10,
+                   atr_mult: float = 1.5) -> pd.DataFrame:
+    """
+    Keltner Channel — EMA ± ATR*mult.
+
+    Used with Bollinger Bands for TTM Squeeze detection:
+    when BB is inside KC, volatility is compressed (squeeze).
+
+    Args:
+        high: High prices
+        low: Low prices
+        close: Close prices
+        ema_period: EMA period for middle line
+        atr_period: ATR period
+        atr_mult: ATR multiplier for channel width
+
+    Returns:
+        DataFrame with 'middle', 'upper', 'lower'
+    """
+    close = pd.Series(close)
+    middle = EMA(close, ema_period)
+    atr = ATR(high, low, close, atr_period)
+    upper = middle + (atr_mult * atr)
+    lower = middle - (atr_mult * atr)
+    return pd.DataFrame({
+        'middle': middle,
+        'upper': upper,
+        'lower': lower
+    }, index=close.index)

@@ -37,6 +37,9 @@ from strategies.turtle import TurtleBacktest
 from strategies.triple_momentum import TripleMomentumBacktest
 from strategies.triple_momentum_v2 import TripleMomentumV2Backtest
 from strategies.volatility_hunter import VolatilityHunterBacktest
+from strategies.velociraptor import VelociraptorBacktest
+from strategies.rubber_band import RubberBandBacktest
+from strategies.volatility_squeeze import VolatilitySqueezeBacktest
 
 logger = logging.getLogger(__name__)
 
@@ -56,6 +59,9 @@ STRATEGIES = {
     "TRIPLE_MOMO": TripleMomentumBacktest,
     "TRIPLE_V2": TripleMomentumV2Backtest,
     "VOL_HUNT": VolatilityHunterBacktest,
+    "VELOCIRAPTOR": VelociraptorBacktest,
+    "RUBBER_BAND": RubberBandBacktest,
+    "VOL_SQUEEZE": VolatilitySqueezeBacktest,
 }
 
 
