@@ -24,14 +24,249 @@ import pandas as pd
 import plotly.express as px
 import plotly.graph_objects as go
 import streamlit as st
+import yaml
+from core.scanner import MarketScanner
+from core.moonshot import MoonshotScanner
+from core.exchange_client import ExchangeClient
+
+def load_live_config():
+    try:
+        with open("config/live.yaml", "r") as f:
+            return yaml.safe_load(f)
+    except Exception:
+        return {}
+
+def add_symbol_to_configs(symbol):
+    """Add symbol to live.yaml and strategies.yaml."""
+    try:
+        # 1. Update live.yaml
+        with open("config/live.yaml", "r") as f:
+            live_config = yaml.safe_load(f) or {}
+        
+        if symbol not in live_config.get("symbols", []):
+            if "symbols" not in live_config:
+                live_config["symbols"] = []
+            live_config["symbols"].append(symbol)
+            
+            with open("config/live.yaml", "w") as f:
+                yaml.dump(live_config, f, sort_keys=False, default_flow_style=False)
+            st.toast(f"✅ Added {symbol} to live.yaml", icon="📝")
+        
+        # 2. Update strategies.yaml (Enable for SuperTrend and SQZ_BO)
+        with open("config/strategies.yaml", "r") as f:
+            strat_config = yaml.safe_load(f) or {}
+            
+        updated_strats = False
+        for strategy in ["squeeze_breakout", "supertrend", "mean_reversion_scalp"]:
+            if strategy in strat_config:
+                if "symbols" not in strat_config[strategy]:
+                    strat_config[strategy]["symbols"] = []
+                
+                if symbol not in strat_config[strategy]["symbols"]:
+                    strat_config[strategy]["symbols"].append(symbol)
+                    updated_strats = True
+        
+        if updated_strats:
+            with open("config/strategies.yaml", "w") as f:
+                yaml.dump(strat_config, f, sort_keys=False, default_flow_style=False)
+            st.toast(f"✅ Added {symbol} to strategies.yaml", icon="📈")
+            
+        return True
+    except Exception as e:
+        st.error(f"Failed to update config: {e}")
+        return False
+
+def show_scanner_section():
+    st.header("🕵️ Market Scanner")
+    
+    tab1, tab2 = st.tabs(["Standard Scanner", "🚀 Moonshot 100x Scanner"])
+    
+    with tab1:
+        col1, col2 = st.columns([1, 2])
+        
+        with col1:
+            st.markdown("""
+            **Find Hot Opportunities**
+            
+            Scans for coins that are:
+            1. 🐦 **Trending** on CoinGecko (Social Hype)
+            2. 📈 **Moving** on Exchange (High Volatility)
+            """)
+            
+            scan_btn = st.button("🔍 Run Live Scan", type="primary")
+        
+        if scan_btn:
+            st.session_state['scan_results'] = None # Clear previous
+            with st.spinner("Scanning markets... (This takes a few seconds)"):
+                try:
+                    # Load config
+                    config = load_live_config()
+                    scanner_config = config.get("scanner", {
+                        "min_volume": 1000000,
+                        "min_change_pct": 5.0,
+                        "max_symbols": 5
+                    })
+                    
+                    # Init scanner
+                    client = ExchangeClient(exchange_name="kraken")
+                    scanner = MarketScanner(client, scanner_config)
+                    
+                    # 1. Get Trending
+                    trending = scanner.get_coingecko_trending_tickers()
+                    
+                    # 2. Get Movers
+                    movers = scanner.scan_exchange_movers()
+                    
+                    # 3. Get Hot Picks (Intersection)
+                    hot_picks = []
+                    trending_set = set(trending)
+                    
+                    for mover in movers:
+                        base = mover['symbol'].split('/')[0]
+                        if base in trending_set:
+                            hot_picks.append(mover)
+                    
+                    # Add top movers if needed
+                    if len(hot_picks) < 3:
+                        for mover in movers:
+                            if mover not in hot_picks:
+                                hot_picks.append(mover)
+                                if len(hot_picks) >= 3:
+                                    break
+                    
+                    # Save to session state to persist after button clicks
+                    st.session_state['scan_results'] = {
+                        'hot_picks': hot_picks,
+                        'trending': trending,
+                        'movers': movers
+                    }
+                            
+                except Exception as e:
+                    st.error(f"Scan failed: {e}")
+        
+        # Display results from session state
+        if st.session_state.get('scan_results'):
+            results = st.session_state['scan_results']
+            hot_picks = results['hot_picks']
+            trending = results['trending']
+            movers = results['movers']
+
+            # Hot Picks Area
+            st.subheader("🔥 Hot Picks (Trending + Active)")
+            
+            if hot_picks:
+                for pick in hot_picks:
+                    with st.container():
+                        c1, c2, c3, c4 = st.columns([2, 1, 1, 1])
+                        c1.markdown(f"**{pick['symbol']}**")
+                        c2.markdown(f"Change: **{pick['change']:+.2f}%**")
+                        c3.markdown(f"Vol: **${pick['volume']:,.0f}**")
+                        
+                        # Check if already in config (simple check)
+                        live_conf = load_live_config()
+                        current_symbols = live_conf.get("symbols", [])
+                        
+                        if pick['symbol'] in current_symbols:
+                            c4.success("✅ Added")
+                        else:
+                            if c4.button("➕ Add", key=f"add_{pick['symbol']}"):
+                                if add_symbol_to_configs(pick['symbol']):
+                                    st.rerun()
+                    st.divider()
+            else:
+                st.info("No hot picks found this scan.")
+
+            # Layout for details
+            c1, c2 = st.columns(2)
+            
+            with c1:
+                st.subheader("🐦 CoinGecko Trending")
+                st.write(", ".join(trending))
+                
+            with c2:
+                st.subheader("📈 Top Exchange Movers")
+                if movers:
+                    m_df = pd.DataFrame(movers[:10])
+                    m_df['volume'] = m_df['volume'].apply(lambda x: f"${x:,.0f}")
+                    m_df['change'] = m_df['change'].apply(lambda x: f"{x:+.2f}%")
+                    st.dataframe(m_df, use_container_width=True)
+                else:
+                    st.info("No high volatility movers found.")
+
+    with tab2:
+        st.markdown("""
+        ### 🚀 Moonshot 100x Scanner
+        **Find Low-Cap Gems with High Momentum**
+        
+        Looks for coins on CoinGecko with:
+        - 💰 **Market Cap < $100M** (Small Cap)
+        - 📊 **High Volume/MCap Ratio** (Momentum)
+        - 💎 **Hidden Gems**
+        """)
+        
+        moon_btn = st.button("🚀 Scan for Moonshots", type="primary")
+        
+        if moon_btn:
+            with st.spinner("Hunting for gems on CoinGecko..."):
+                scanner = MoonshotScanner()
+                gems = scanner.find_moonshots()
+                
+                if gems:
+                    st.success(f"Found {len(gems)} potential moonshots!")
+                    
+                    st.markdown("---")
+                    for gem in gems:
+                        with st.container():
+                            c1, c2, c3, c4, c5 = st.columns([1, 1, 1, 1, 1])
+                            c1.markdown(f"### {gem['symbol']}")
+                            c1.caption(gem['name'])
+                            c2.metric("Price", f"${gem['price']:.6f}", f"{gem['change_24h']:+.2f}%")
+                            c3.metric("Market Cap", f"${gem['mcap']/1e6:.1f}M")
+                            
+                            # Highlight high ratios
+                            ratio_color = "green" if gem['ratio'] > 0.5 else "off"
+                            c4.metric("Vol/MCap", f"{gem['ratio']:.2f}")
+                            
+                            # Add button
+                            live_conf = load_live_config()
+                            current = live_conf.get("symbols", [])
+                            symbol = f"{gem['symbol']}/USD"
+                            
+                            if symbol in current:
+                                c5.success("✅ Added")
+                            else:
+                                if c5.button("➕ Add", key=f"moon_{gem['symbol']}"):
+                                    if add_symbol_to_configs(symbol):
+                                        st.rerun()
+                        st.divider()
+                else:
+                    st.warning("No gems found matching criteria. Market might be quiet.")
 
 # =============================================================================
 # Configuration
 # =============================================================================
 
 DEFAULT_DB_PATH = "data/hot_crypto.db"
-STRATEGIES = ["TREND_EMA", "MR_BB", "SQZ_BO", "GRID_LR"]
-TIMEFRAMES = ["1m", "5m", "15m", "1h", "4h", "1d", "All"]
+STRATEGIES = ["TREND_EMA", "MR_BB", "SQZ_BO", "GRID_LR", "SUPERTREND", "RSI_DIV", "MACD_X", "ICHI", "VWAP", "DUAL_T", "TURTLE", "TRIPLE_MOMO", "TRIPLE_V2", "VOL_HUNT"]
+TIMEFRAMES = ["1m", "3m", "5m", "15m", "30m", "1h", "4h", "1d", "All"]
+
+# Strategy descriptions for UI
+STRATEGY_DESCRIPTIONS = {
+    "TREND_EMA": "📈 **Trend EMA** - Follows trend using 20/50 EMA crossovers. Best for strong directional markets.",
+    "MR_BB": "🔄 **Mean Reversion BB** - Buys at lower Bollinger Band, sells at upper. Works in ranging markets.",
+    "SQZ_BO": "💥 **Squeeze Breakout** - Enters after low volatility squeeze. Catches explosive moves.",
+    "GRID_LR": "📊 **Grid Ladder** - DCA strategy with multiple entry levels. Good for accumulation.",
+    "SUPERTREND": "🌊 **SuperTrend** - ATR-based trend indicator. Simple and effective for trending coins.",
+    "RSI_DIV": "🔍 **RSI Divergence** - Detects price/RSI divergence for reversals. Contrarian strategy.",
+    "MACD_X": "📉 **MACD Crossover** - Classic momentum strategy. MACD crossing signal line.",
+    "ICHI": "☁️ **Ichimoku Cloud** - Japanese indicator with cloud, TK cross. All-in-one system.",
+    "VWAP": "⚖️ **VWAP Bounce** - Mean reversion to volume-weighted price. Institutional favorite.",
+    "DUAL_T": "🎯 **Dual Thrust** - Range breakout system. Best performer on 4h! (+7.14%)",
+    "TURTLE": "🐢 **Turtle Trading** - 20-day breakout system. Classic trend-following. (+8.20% on 4h)",
+    "TRIPLE_MOMO": "🚀 **Triple Momentum** - RSI+MACD+Stochastic confirmation with 1-3x leverage sizing.",
+    "TRIPLE_V2": "⚡ **Triple Momentum V2** - Aggressive 2-of-3 confirmation with tighter stops.",
+    "VOL_HUNT": "🎯 **Volatility Hunter** - Extreme BB (3 StdDev) + RSI exhaustion for volatile coins! +25%+ on AXS!",
+}
 
 
 # =============================================================================
@@ -233,6 +468,13 @@ def main():
         filtered_df = filtered_df.sort_values("return_pct", ascending=False)
     
     # -------------------------------------------------------------------------
+    # Market Scanner
+    # -------------------------------------------------------------------------
+    show_scanner_section()
+    
+    st.markdown("---")
+
+    # -------------------------------------------------------------------------
     # Main Content: Backtest Runs Table
     # -------------------------------------------------------------------------
     st.header("📊 Backtest Runs")
@@ -382,18 +624,42 @@ def show_run_backtest_section(db_path: str):
     """Section to run new backtests from the UI."""
     st.header("🚀 Run New Backtest")
     
+    # Get available coins from database
+    available_coins = []
+    try:
+        with get_conn(db_path) as conn:
+            cursor = conn.execute("SELECT DISTINCT symbol FROM ohlcv ORDER BY symbol")
+            available_coins = [row[0] for row in cursor.fetchall()]
+    except Exception:
+        available_coins = ["BTC/USD", "ETH/USD"]  # Fallback
+    
     with st.expander("Configure and Run Backtest", expanded=False):
         col1, col2 = st.columns(2)
         
         with col1:
-            symbols_input = st.text_input("Symbols (comma-separated)", value="BTC/USDT,ETH/USDT")
+            # Coin multiselect
+            default_coins = ["BTC/USD", "ETH/USD"] if "BTC/USD" in available_coins else available_coins[:2]
+            selected_coins = st.multiselect(
+                "Select Coins",
+                options=available_coins,
+                default=default_coins,
+                help="Select one or more coins to backtest"
+            )
+            symbols_input = ",".join(selected_coins) if selected_coins else "BTC/USD"
+            
             timeframe = st.selectbox("Timeframe", TIMEFRAMES, index=TIMEFRAMES.index("4h"))
             mode = st.radio("Mode", ["All Strategies", "Single Strategy"])
             
             if mode == "Single Strategy":
                 strategy = st.selectbox("Strategy", STRATEGIES)
+                # Show description of selected strategy
+                st.markdown(STRATEGY_DESCRIPTIONS.get(strategy, ""))
             else:
                 strategy = None
+                # Show all strategy descriptions in an expander
+                with st.expander("📖 Strategy Guide", expanded=False):
+                    for strat, desc in STRATEGY_DESCRIPTIONS.items():
+                        st.markdown(desc)
         
         with col2:
             cash = st.number_input("Initial Cash ($)", value=10000.0, min_value=100.0)
@@ -401,13 +667,23 @@ def show_run_backtest_section(db_path: str):
             use_sql = st.checkbox("Use SQL Data", value=True)
         
         if st.button("▶️ Run Backtest", type="primary"):
+            # All available timeframes that have data
+            ALL_TIMEFRAMES = ["1m", "3m", "5m", "15m", "30m", "1h", "4h", "1d"]
+            
             if timeframe == "All":
-                target_timeframes = ["1h", "4h", "1d"]
+                target_timeframes = ALL_TIMEFRAMES
             else:
                 target_timeframes = [timeframe]
             
-            for tf in target_timeframes:
-                st.info(f"Running backtest for timeframe: {tf}...")
+            # Track results for best performer summary
+            all_results = []
+            
+            progress_bar = st.progress(0)
+            total_runs = len(target_timeframes)
+            
+            for idx, tf in enumerate(target_timeframes):
+                st.info(f"Running backtest for timeframe: {tf}... ({idx+1}/{total_runs})")
+                progress_bar.progress((idx + 1) / total_runs)
                 
                 # Build command
                 if mode == "All Strategies":
@@ -442,23 +718,69 @@ def show_run_backtest_section(db_path: str):
                         cmd,
                         capture_output=True,
                         text=True,
-                        timeout=120,
+                        timeout=180,  # Increased timeout for more strategies
                     )
                     
                     if result.returncode == 0:
-                        st.success(f"✅ {tf}: Completed successfully!")
+                        st.success(f"✅ {tf}: Completed!")
+                        
+                        # Parse output for best performer
+                        output = result.stdout
+                        if "Best performer:" in output:
+                            for line in output.split("\n"):
+                                if "Best performer:" in line:
+                                    best_info = line.strip()
+                                if "Return:" in line and "%" in line:
+                                    ret_line = line.strip()
+                                    try:
+                                        ret_pct = float(ret_line.split(":")[1].replace("%", "").strip())
+                                        all_results.append({
+                                            "timeframe": tf,
+                                            "info": best_info,
+                                            "return": ret_pct
+                                        })
+                                    except:
+                                        pass
+                        
                         with st.expander(f"Output ({tf})"):
-                            st.code(result.stdout, language="text")
+                            st.code(output, language="text")
                     else:
-                        st.error(f"❌ {tf}: Failed!")
-                        st.code(result.stderr, language="text")
+                        st.error(f"❌ {tf}: Failed (no data?)")
+                        with st.expander(f"Error ({tf})"):
+                            st.code(result.stderr, language="text")
                         
                 except subprocess.TimeoutExpired:
-                    st.error(f"⏱️ {tf}: Timed out (>120s)")
+                    st.error(f"⏱️ {tf}: Timed out (>180s)")
                 except Exception as e:
                     st.error(f"❌ {tf}: Error: {e}")
             
-            st.success("🏁 All requested backtests completed.")
+            progress_bar.empty()
+            st.success("🏁 All requested backtests completed!")
+            
+            # Show best performer summary
+            if all_results:
+                st.markdown("---")
+                st.subheader("🏆 Best Performers by Timeframe")
+                
+                # Sort by return
+                all_results.sort(key=lambda x: x["return"], reverse=True)
+                
+                # Create summary table
+                summary_data = []
+                for r in all_results:
+                    summary_data.append({
+                        "Timeframe": r["timeframe"],
+                        "Best Strategy": r["info"].replace("🏆 Best performer: ", ""),
+                        "Return": f"{r['return']:+.2f}%"
+                    })
+                
+                st.dataframe(pd.DataFrame(summary_data), use_container_width=True)
+                
+                # Highlight overall best
+                if all_results:
+                    best = all_results[0]
+                    st.success(f"🥇 **Overall Best**: {best['info']} on **{best['timeframe']}** with **{best['return']:+.2f}%** return!")
+            
             st.button("🔄 Reload to see new results", on_click=lambda: st.rerun())
 
 

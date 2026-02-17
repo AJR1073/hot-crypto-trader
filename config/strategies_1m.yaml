@@ -1,0 +1,10 @@
+mean_reversion_bb:
+  enabled: true
+  symbols: ["BTC/USD"]
+  timeframe: "1m"
+  params:
+    sma_period: 50              # Slower SMA to define "mean"
+    std_dev_mult: 3.0           # 3.0 SD to only catch extreme extremities
+    atr_period: 14
+    atr_stop_mult: 2.0
+    risk_per_trade: 0.01

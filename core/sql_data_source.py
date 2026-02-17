@@ -26,7 +26,7 @@ class SQLDataSource(DataSource):
     pandas DataFrame indexed by timestamp.
     """
 
-    def __init__(self, db_url: Optional[str] = None, exchange: str = "binanceus"):
+    def __init__(self, db_url: Optional[str] = None, exchange: str = "kraken"):
         """
         Initialize with database connection.
 

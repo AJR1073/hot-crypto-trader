@@ -71,7 +71,9 @@ Examples:
     parser.add_argument(
         "--strategy", 
         default="TREND_EMA",
-        choices=["TREND_EMA", "MR_BB", "SQZ_BO", "GRID_LR", "SUPERTREND"],
+        choices=["TREND_EMA", "MR_BB", "SQZ_BO", "GRID_LR", "SUPERTREND", 
+                 "RSI_DIV", "MACD_X", "ICHI", "VWAP", "DUAL_T", "TURTLE", 
+                 "TRIPLE_MOMO", "TRIPLE_V2", "VOL_HUNT"],
         help="Strategy to run (default: TREND_EMA)"
     )
     parser.add_argument(
@@ -150,6 +152,7 @@ Examples:
                 print(f"\n🏆 Best performer: {best['strategy']} on {best['symbol']}")
                 print(f"   Final Equity: ${best['final_equity']:,.2f}")
                 print(f"   Return: {best['return_pct']:.2f}%")
+                print(f"   Data Period: {best.get('start_date', 'N/A')} to {best.get('end_date', 'N/A')} ({best.get('days_span', 0)} days)")
             
         else:
             # Single-strategy mode

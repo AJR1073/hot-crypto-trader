@@ -203,3 +203,178 @@ def SuperTrend(high: pd.Series, low: pd.Series, close: pd.Series, period: int = 
         'SuperTrend': supertrend_list,
         'Trend': trend_list
     }, index=close.index)
+
+
+def RSI(close: pd.Series, period: int = 14) -> pd.Series:
+    """
+    Relative Strength Index.
+    
+    Args:
+        close: Close prices
+        period: RSI period (default 14)
+        
+    Returns:
+        RSI series (0-100)
+    """
+    close = pd.Series(close)
+    delta = close.diff()
+    
+    gain = delta.where(delta > 0, 0.0)
+    loss = (-delta).where(delta < 0, 0.0)
+    
+    avg_gain = gain.ewm(alpha=1/period, min_periods=period).mean()
+    avg_loss = loss.ewm(alpha=1/period, min_periods=period).mean()
+    
+    rs = avg_gain / avg_loss
+    rsi = 100 - (100 / (1 + rs))
+    return rsi
+
+
+def MACD(close: pd.Series, fast: int = 12, slow: int = 26, signal: int = 9) -> pd.DataFrame:
+    """
+    Moving Average Convergence Divergence.
+    
+    Args:
+        close: Close prices
+        fast: Fast EMA period (default 12)
+        slow: Slow EMA period (default 26)
+        signal: Signal line period (default 9)
+        
+    Returns:
+        DataFrame with 'macd', 'signal', 'histogram'
+    """
+    close = pd.Series(close)
+    ema_fast = close.ewm(span=fast, adjust=False).mean()
+    ema_slow = close.ewm(span=slow, adjust=False).mean()
+    
+    macd_line = ema_fast - ema_slow
+    signal_line = macd_line.ewm(span=signal, adjust=False).mean()
+    histogram = macd_line - signal_line
+    
+    return pd.DataFrame({
+        'macd': macd_line,
+        'signal': signal_line,
+        'histogram': histogram
+    }, index=close.index)
+
+
+def Ichimoku(high: pd.Series, low: pd.Series, close: pd.Series,
+             tenkan: int = 9, kijun: int = 26, senkou_b: int = 52) -> pd.DataFrame:
+    """
+    Ichimoku Cloud indicator.
+    
+    Args:
+        high: High prices
+        low: Low prices
+        close: Close prices
+        tenkan: Tenkan-sen period (default 9)
+        kijun: Kijun-sen period (default 26)
+        senkou_b: Senkou Span B period (default 52)
+        
+    Returns:
+        DataFrame with tenkan_sen, kijun_sen, senkou_a, senkou_b, chikou_span
+    """
+    high = pd.Series(high)
+    low = pd.Series(low)
+    close = pd.Series(close)
+    
+    # Tenkan-sen (Conversion Line)
+    tenkan_sen = (high.rolling(tenkan).max() + low.rolling(tenkan).min()) / 2
+    
+    # Kijun-sen (Base Line)
+    kijun_sen = (high.rolling(kijun).max() + low.rolling(kijun).min()) / 2
+    
+    # Senkou Span A (Leading Span A) - shifted forward 26 periods
+    senkou_span_a = ((tenkan_sen + kijun_sen) / 2).shift(kijun)
+    
+    # Senkou Span B (Leading Span B) - shifted forward 26 periods
+    senkou_span_b_val = (high.rolling(senkou_b).max() + low.rolling(senkou_b).min()) / 2
+    senkou_span_b_shifted = senkou_span_b_val.shift(kijun)
+    
+    # Chikou Span (Lagging Span) - shifted back 26 periods
+    chikou_span = close.shift(-kijun)
+    
+    return pd.DataFrame({
+        'tenkan_sen': tenkan_sen,
+        'kijun_sen': kijun_sen,
+        'senkou_a': senkou_span_a,
+        'senkou_b': senkou_span_b_shifted,
+        'chikou_span': chikou_span
+    }, index=close.index)
+
+
+def VWAP(high: pd.Series, low: pd.Series, close: pd.Series, volume: pd.Series) -> pd.Series:
+    """
+    Volume Weighted Average Price.
+    
+    Note: This is a cumulative VWAP. For intraday, reset at session start.
+    
+    Args:
+        high: High prices
+        low: Low prices
+        close: Close prices
+        volume: Volume
+        
+    Returns:
+        VWAP series
+    """
+    typical_price = (high + low + close) / 3
+    vwap = (typical_price * volume).cumsum() / volume.cumsum()
+    return vwap
+
+
+def DonchianChannel(high: pd.Series, low: pd.Series, period: int = 20) -> pd.DataFrame:
+    """
+    Donchian Channel (for Turtle Trading).
+    
+    Args:
+        high: High prices
+        low: Low prices
+        period: Lookback period (default 20)
+        
+    Returns:
+        DataFrame with 'upper', 'lower', 'middle'
+    """
+    high = pd.Series(high)
+    low = pd.Series(low)
+    
+    upper = high.rolling(period).max()
+    lower = low.rolling(period).min()
+    middle = (upper + lower) / 2
+    
+    return pd.DataFrame({
+        'upper': upper,
+        'lower': lower,
+        'middle': middle
+    }, index=high.index)
+
+
+def Stochastic(high: pd.Series, low: pd.Series, close: pd.Series, 
+               k_period: int = 14, d_period: int = 3) -> pd.DataFrame:
+    """
+    Stochastic Oscillator (%K and %D).
+    
+    Args:
+        high: High prices
+        low: Low prices
+        close: Close prices
+        k_period: Lookback period for %K (default 14)
+        d_period: Smoothing period for %D (default 3)
+        
+    Returns:
+        DataFrame with 'k' and 'd' columns
+    """
+    high = pd.Series(high)
+    low = pd.Series(low)
+    close = pd.Series(close)
+    
+    # %K = (Close - Lowest Low) / (Highest High - Lowest Low) * 100
+    lowest_low = low.rolling(window=k_period).min()
+    highest_high = high.rolling(window=k_period).max()
+    
+    k = ((close - lowest_low) / (highest_high - lowest_low)) * 100
+    
+    # %D = SMA of %K
+    d = k.rolling(window=d_period).mean()
+    
+    return pd.DataFrame({'k': k, 'd': d})

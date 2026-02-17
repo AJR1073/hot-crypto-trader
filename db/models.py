@@ -5,6 +5,10 @@ Tables:
 - OHLCV: Candle data storage with upsert support
 - BacktestRun: Backtest metadata and summary stats
 - BacktestTrade: Individual trades from backtests
+- PaperRun/Event/Trade: Paper trading records
+- LiveOrder: Live order state tracking with idempotency
+- CircuitBreakerState: Persistent circuit breaker trips
+- TaxLedger: IRS-ready trade records
 """
 
 from datetime import datetime
@@ -216,4 +220,102 @@ class PaperTrade(Base):
 
     def __repr__(self) -> str:
         return f"<PaperTrade {self.id} {self.side} {self.symbol} @ {self.fill_price}>"
+
+
+# =============================================================================
+# Live Trading Models
+# =============================================================================
+
+
+class LiveOrder(Base):
+    """
+    Tracks all live orders through the state machine.
+
+    States: pending → submitted → filled | partial | cancelled | orphaned | error
+    Uses client_order_id for idempotent reconciliation.
+    """
+    __tablename__ = "live_orders"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    client_order_id = Column(String(100), unique=True, nullable=False)
+    exchange_order_id = Column(String(100))
+    symbol = Column(String(20), nullable=False)
+    side = Column(String(10), nullable=False)  # buy, sell
+    order_type = Column(String(10), nullable=False)  # limit, market
+    qty = Column(Float, nullable=False)
+    filled_qty = Column(Float, default=0.0)
+    price = Column(Float)  # Requested price (None for market)
+    avg_fill_price = Column(Float)
+    status = Column(String(20), nullable=False, default="pending")
+    strategy = Column(String(50), nullable=False)
+    fees = Column(Float, default=0.0)
+    error_message = Column(Text)
+    chase_attempts = Column(Integer, default=0)
+    created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
+    submitted_at = Column(DateTime)
+    filled_at = Column(DateTime)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+    __table_args__ = (
+        Index("ix_live_orders_status", "status"),
+        Index("ix_live_orders_symbol", "symbol", "status"),
+    )
+
+    def __repr__(self) -> str:
+        return f"<LiveOrder {self.client_order_id} {self.side} {self.symbol} [{self.status}]>"
+
+
+class CircuitBreakerState(Base):
+    """
+    Persists circuit breaker trips across restarts.
+
+    Active trips are loaded on startup to restore safety state.
+    """
+    __tablename__ = "circuit_breaker_state"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    breaker_type = Column(String(20), nullable=False)  # asset, portfolio, consecutive, flash
+    symbol = Column(String(20))  # NULL for portfolio-level breakers
+    triggered_at = Column(DateTime, nullable=False)
+    expires_at = Column(DateTime, nullable=False)
+    reason = Column(Text, nullable=False)
+
+    __table_args__ = (
+        Index("ix_cb_state_expires", "expires_at"),
+    )
+
+    def __repr__(self) -> str:
+        return f"<CircuitBreakerState {self.breaker_type} {self.symbol} expires={self.expires_at}>"
+
+
+class TaxLedger(Base):
+    """
+    IRS-ready trade records for Form 8949 / Schedule D.
+
+    Every closed trade creates one ledger entry with cost basis,
+    proceeds, gain/loss, and wash-sale flags.
+    """
+    __tablename__ = "tax_ledger"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    symbol = Column(String(20), nullable=False)
+    acquired_date = Column(DateTime, nullable=False)
+    disposed_date = Column(DateTime, nullable=False)
+    qty = Column(Float, nullable=False)
+    cost_basis = Column(Float, nullable=False)  # Total cost including fees
+    proceeds = Column(Float, nullable=False)  # Total proceeds after fees
+    gain_loss = Column(Float, nullable=False)
+    fees_total = Column(Float, default=0.0)
+    holding_period = Column(String(10))  # "short" or "long"
+    wash_sale_flag = Column(String(5), default="N")  # "Y" or "N"
+    wash_sale_adjustment = Column(Float, default=0.0)
+    strategy = Column(String(50))
+    notes = Column(Text)
+
+    __table_args__ = (
+        Index("ix_tax_ledger_symbol", "symbol", "disposed_date"),
+    )
+
+    def __repr__(self) -> str:
+        return f"<TaxLedger {self.symbol} {self.disposed_date} PnL=${self.gain_loss:.2f}>"
 

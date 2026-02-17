@@ -4,7 +4,7 @@
 # Live trading: Only SQZ_BO enabled
 squeeze_breakout:
   enabled: true
-  symbols: ["BTC/USDT", "ETH/USDT"]
+  symbols: ["BTC/USD", "ETH/USD"]
   timeframe: "4h"
   params:
     bb_period: 20
@@ -17,7 +17,7 @@ squeeze_breakout:
 
 trend_ema:
   enabled: false
-  symbols: ["BTC/USDT", "ETH/USDT", "SOL/USDT"]
+  symbols: ["BTC/USD", "ETH/USD", "SOL/USD"]
   timeframe: "1d"
   params:
     ema_fast: 20
@@ -28,9 +28,9 @@ trend_ema:
     risk_per_trade: 0.01
 
 mean_reversion_bb:
-  enabled: false
-  symbols: ["BTC/USDT", "ETH/USDT", "SOL/USDT"]
-  timeframe: "1h"
+  enabled: true  # Best performer on volatile coins: +25.45% on AXS!
+  symbols: ["BTC/USD", "ETH/USD", "AXS/USD", "BONK/USD", "SHIB/USD", "FET/USD", "JUP/USD", "IMX/USD"]
+  timeframe: "4h"
   params:
     sma_period: 20
     std_dev_mult: 2.0
@@ -40,7 +40,7 @@ mean_reversion_bb:
 
 grid_ladder:
   enabled: false
-  symbols: ["BTC/USDT", "ETH/USDT", "SOL/USDT"]
+  symbols: ["BTC/USD", "ETH/USD", "SOL/USD"]
   timeframe: "4h"
   params:
     sma_period: 50
@@ -51,9 +51,122 @@ grid_ladder:
 
 supertrend:
   enabled: true
-  symbols: ["BTC/USDT", "ETH/USDT"]
+  symbols: ["BTC/USD", "ETH/USD"]
   timeframe: "1d"
   params:
     period: 10
     multiplier: 2.0
     risk_per_trade: 0.01
+
+mean_reversion_scalp:
+  enabled: true
+  symbols: ["BTC/USD"]
+  timeframe: "1m"
+  params:
+    sma_period: 50
+    std_dev_mult: 3.0
+    atr_period: 14
+    atr_stop_mult: 1.5
+    risk_per_trade: 0.005
+
+# New Strategies (backtested +8.20% to -6.28%)
+
+rsi_divergence:
+  enabled: false
+  symbols: ["BTC/USD", "ETH/USD"]
+  timeframe: "4h"
+  params:
+    rsi_period: 14
+    lookback: 10
+    rsi_oversold: 30
+    rsi_overbought: 70
+    atr_period: 14
+    atr_stop_mult: 2.0
+    risk_per_trade: 0.01
+
+macd_crossover:
+  enabled: false
+  symbols: ["BTC/USD", "ETH/USD"]
+  timeframe: "4h"
+  params:
+    fast_period: 12
+    slow_period: 26
+    signal_period: 9
+    atr_period: 14
+    atr_stop_mult: 2.0
+    risk_per_trade: 0.01
+
+ichimoku:
+  enabled: false
+  symbols: ["BTC/USD", "ETH/USD"]
+  timeframe: "1d"
+  params:
+    tenkan_period: 9
+    kijun_period: 26
+    senkou_b_period: 52
+    atr_period: 14
+    risk_per_trade: 0.01
+
+vwap_bounce:
+  enabled: false
+  symbols: ["BTC/USD", "ETH/USD"]
+  timeframe: "1h"
+  params:
+    ema_period: 50
+    vwap_threshold: 0.002
+    atr_period: 14
+    atr_stop_mult: 1.5
+    risk_per_trade: 0.01
+
+dual_thrust:
+  enabled: false
+  symbols: ["BTC/USD", "ETH/USD"]
+  timeframe: "4h"
+  params:
+    lookback: 4
+    k1: 0.5
+    k2: 0.5
+    atr_period: 14
+    risk_per_trade: 0.01
+
+turtle:
+  enabled: true  # Best performer: +8.20%
+  symbols: ["BTC/USD", "ETH/USD"]
+  timeframe: "1d"
+  params:
+    entry_period: 20
+    exit_period: 10
+    atr_period: 20
+    atr_stop_mult: 2.0
+    risk_per_trade: 0.01
+
+triple_momentum:
+  enabled: true  # Advanced leveraged momentum strategy
+  symbols: ["BTC/USD", "ETH/USD"]
+  timeframe: "4h"
+  params:
+    rsi_period: 14
+    macd_fast: 12
+    macd_slow: 26
+    macd_signal: 9
+    stoch_k: 14
+    stoch_d: 3
+    atr_period: 14
+    trailing_atr_mult: 2.0
+    base_risk: 0.015  # 1.5% base risk with leverage
+
+volatility_hunter:
+  enabled: true  # Optimized for volatile small-caps - FET +18%, JUP +14%
+  symbols: ["AXS/USD", "BONK/USD", "SHIB/USD", "FET/USD", "JUP/USD"]
+  timeframe: "4h"
+  params:
+    bb_period: 20
+    bb_std: 3.0  # Extreme bands
+    rsi_period: 14
+    rsi_oversold: 25
+    rsi_overbought: 75
+    atr_period: 14
+    stop_atr_mult: 1.5
+    volume_mult: 1.3
+    base_risk: 0.02  # 2% risk per trade
+

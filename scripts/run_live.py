@@ -37,7 +37,43 @@ from core.portfolio import Portfolio
 from core.risk_manager import RiskManager
 from core.paper_persistence import create_paper_run, update_paper_run, log_event, log_trade
 from strategies.squeeze_breakout import SqueezeBreakoutLive
+from strategies.mean_reversion_bb import MeanReversionBBLive
+from strategies.trend_ema import TrendEmaLive
+from strategies.grid_ladder import GridLadderLive
+from strategies.supertrend import SuperTrendLive
+from strategies.rsi_divergence import RSIDivergenceLive
+from strategies.macd_crossover import MACDCrossoverLive
+from strategies.ichimoku import IchimokuLive
+from strategies.vwap_bounce import VWAPBounceLive
+from strategies.dual_thrust import DualThrustLive
+from strategies.turtle import TurtleLive
 from strategies.indicators import SMA, STD, ATR
+from strategies.triple_momentum import TripleMomentumLive
+
+# Strategy class registry for live trading
+LIVE_STRATEGIES = {
+    "squeeze_breakout": SqueezeBreakoutLive,
+    "sqz_bo": SqueezeBreakoutLive,
+    "mean_reversion_bb": MeanReversionBBLive,
+    "mr_bb": MeanReversionBBLive,
+    "mean_reversion_scalp": MeanReversionBBLive,
+    "trend_ema": TrendEmaLive,
+    "grid_ladder": GridLadderLive,
+    "supertrend": SuperTrendLive,
+    "rsi_divergence": RSIDivergenceLive,
+    "rsi_div": RSIDivergenceLive,
+    "macd_crossover": MACDCrossoverLive,
+    "macd_x": MACDCrossoverLive,
+    "ichimoku": IchimokuLive,
+    "ichi": IchimokuLive,
+    "vwap_bounce": VWAPBounceLive,
+    "vwap": VWAPBounceLive,
+    "dual_thrust": DualThrustLive,
+    "dual_t": DualThrustLive,
+    "turtle": TurtleLive,
+    "triple_momentum": TripleMomentumLive,
+    "triple_momo": TripleMomentumLive,
+}
 
 logger = logging.getLogger(__name__)
 
@@ -94,7 +130,7 @@ def refresh_ohlcv_from_ccxt(
     records = []
     for ts, row in df.iterrows():
         records.append({
-            "exchange": "binanceus",
+            "exchange": "kraken",
             "symbol": symbol,
             "timeframe": timeframe,
             "ts": ts.to_pydatetime(),
@@ -373,6 +409,137 @@ def run_paper_trading_cycle(
                             
                             log_event(run_id, "CLOSE", f"Closed position: PnL ${pnl:.2f}",
                                      symbol=symbol, strategy="SQZ_BO", extra={"pnl": pnl})
+
+                if strategy_name == "mean_reversion_scalp":
+                    params = strategy_config.get("params", {})
+                    # Instantiate with config params
+                    strategy = MeanReversionBBLive(params)
+                    
+                    strategy.init_symbol(symbol)
+                    strategy.state[symbol]["df"] = df
+                    
+                    candle = {
+                        "open": latest_bar["open"],
+                        "high": latest_bar["high"],
+                        "low": latest_bar["low"],
+                        "close": latest_bar["close"],
+                        "volume": latest_bar["volume"],
+                    }
+                    
+                    signal = strategy.on_bar(symbol, candle)
+                    logger.info(f"  {strategy_name} signal: {signal.action}")
+                    
+                    if signal.action == "HOLD":
+                        pass
+                    
+                    elif signal.action in ("OPEN_LONG", "OPEN_SHORT"):
+                        atr = ATR(df["high"], df["low"], df["close"], 14).iloc[-1]
+                        decision = risk_manager.evaluate_trade(
+                            symbol=symbol,
+                            price=current_price,
+                            atr_value=atr,
+                            atr_stop_mult=params.get("atr_stop_mult", 1.5),
+                        )
+                        
+                        if decision.approved:
+                            stop = signal.extra.get("stop")
+                            tp = signal.extra.get("tp")
+                            size = decision.position_size
+                            
+                            try:
+                                if signal.action == "OPEN_LONG":
+                                    fill, fees, slip = portfolio.open_long(symbol, size, current_price, stop, tp, "MR_SCALP")
+                                    side = "LONG"
+                                else:
+                                    fill, fees, slip = portfolio.open_short(symbol, size, current_price, stop, tp, "MR_SCALP")
+                                    side = "SHORT"
+                                    
+                                risk_manager.register_trade_open()
+                                log_trade(run_id, symbol, "MR_SCALP", side, size, current_price, fill, fees, slip, "Scalp Signal")
+                                log_event(run_id, "FILL", f"Scalp {side} {size:.6f}", symbol=symbol, strategy="MR_SCALP")
+                                
+                            except ValueError as e:
+                                logger.error(f"Trade failed: {e}")
+                        else:
+                            logger.warning(f"Scalp Rejected: {decision.reason}")
+                            
+                    elif signal.action in ("CLOSE_LONG", "CLOSE_SHORT"):
+                        pos = portfolio.get_position(symbol)
+                        if pos and pos.strategy == "MR_SCALP":
+                            if pos.side == "LONG":
+                                fill, pnl, fees, slip = portfolio.close_long(symbol, current_price)
+                            else:
+                                fill, pnl, fees, slip = portfolio.close_short(symbol, current_price)
+                                risk_manager.register_trade_close(pnl)
+                            log_trade(run_id, symbol, "MR_SCALP", signal.action, pos.size, current_price, fill, fees, slip, "Scalp Exit", pos.id)
+                            log_event(run_id, "CLOSE", f"Scalp Exit PnL ${pnl:.2f}", symbol=symbol, strategy="MR_SCALP", extra={"pnl": pnl})
+                
+                # Generic handler for all other strategies using LIVE_STRATEGIES registry
+                elif strategy_name in LIVE_STRATEGIES:
+                    strategy_class = LIVE_STRATEGIES[strategy_name]
+                    params = strategy_config.get("params", {})
+                    strategy = strategy_class(params)
+                    
+                    strategy.init_symbol(symbol)
+                    strategy.state[symbol]["df"] = df
+                    
+                    candle = {
+                        "open": latest_bar["open"],
+                        "high": latest_bar["high"],
+                        "low": latest_bar["low"],
+                        "close": latest_bar["close"],
+                        "volume": latest_bar["volume"],
+                    }
+                    
+                    signal = strategy.on_bar(symbol, candle)
+                    strategy_code = strategy_name.upper().replace("_", "")[:8]
+                    logger.info(f"  {strategy_name} signal: {signal.action}")
+                    
+                    if signal.action == "HOLD":
+                        log_event(run_id, "HOLD", "No signal", symbol=symbol, strategy=strategy_code)
+                        continue
+                    
+                    elif signal.action in ("OPEN_LONG", "OPEN_SHORT"):
+                        atr = ATR(df["high"], df["low"], df["close"], params.get("atr_period", 14)).iloc[-1]
+                        decision = risk_manager.evaluate_trade(
+                            symbol=symbol,
+                            price=current_price,
+                            atr_value=atr,
+                            atr_stop_mult=params.get("atr_stop_mult", 2.0),
+                        )
+                        
+                        if not decision.approved:
+                            logger.warning(f"  Trade REJECTED: {decision.reason}")
+                            log_event(run_id, "REJECT", decision.reason, level="WARN", symbol=symbol, strategy=strategy_code)
+                            continue
+                        
+                        stop = signal.extra.get("stop") if signal.extra else None
+                        tp = signal.extra.get("tp") if signal.extra else None
+                        
+                        try:
+                            if signal.action == "OPEN_LONG":
+                                fill, fees, slip = portfolio.open_long(symbol, decision.position_size, current_price, stop, tp, strategy_code)
+                            else:
+                                fill, fees, slip = portfolio.open_short(symbol, decision.position_size, current_price, stop, tp, strategy_code)
+                            
+                            risk_manager.register_trade_open()
+                            log_trade(run_id, symbol, strategy_code, signal.action.split("_")[1], decision.position_size, current_price, fill, fees, slip, f"{strategy_name} signal")
+                            log_event(run_id, "FILL", f"Opened {signal.action.split('_')[1]} {decision.position_size:.6f} @ ${fill:.2f}", symbol=symbol, strategy=strategy_code)
+                        except ValueError as e:
+                            log_event(run_id, "ERROR", str(e), level="ERROR", symbol=symbol, strategy=strategy_code)
+                    
+                    elif signal.action in ("CLOSE_LONG", "CLOSE_SHORT"):
+                        pos = portfolio.get_position(symbol)
+                        if pos:
+                            if pos.side == "LONG":
+                                fill, pnl, fees, slip = portfolio.close_long(symbol, current_price)
+                            else:
+                                fill, pnl, fees, slip = portfolio.close_short(symbol, current_price)
+                            
+                            risk_manager.register_trade_close(pnl)
+                            reason = signal.extra.get("reason", "Strategy exit") if signal.extra else "Strategy exit"
+                            log_trade(run_id, symbol, strategy_code, signal.action, pos.size, current_price, fill, fees, slip, reason, pos.id)
+                            log_event(run_id, "CLOSE", f"Closed: PnL ${pnl:.2f}", symbol=symbol, strategy=strategy_code, extra={"pnl": pnl})
                 
         except Exception as e:
             logger.error(f"Error processing {symbol}: {e}", exc_info=True)

@@ -2,8 +2,8 @@
 
 # Exchange settings
 exchange:
-  name: binanceus
-  sandbox: false  # Set true for testnet if available
+  name: kraken
+  sandbox: false
 
 # Database settings (optional override, defaults to sqlite:///data/hot_crypto.db)
 db:

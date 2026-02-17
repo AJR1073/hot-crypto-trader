@@ -9,7 +9,7 @@ Usage:
     python scripts/fetch_ohlcv_to_db.py --symbol ETH/USDT --timeframe 1d --limit 1000
 
 Arguments:
-    --exchange: Exchange name (default: binanceus)
+    --exchange: Exchange name (default: kraken)
     --symbol: Trading pair (required)
     --timeframe: Candle timeframe (default: 4h)
     --limit: Number of candles to fetch (default: 500)
@@ -110,7 +110,7 @@ def main():
     parser = argparse.ArgumentParser(
         description="Fetch OHLCV data from exchange and store in SQLite database"
     )
-    parser.add_argument("--exchange", default="binanceus", help="Exchange name")
+    parser.add_argument("--exchange", default="kraken", help="Exchange name")
     parser.add_argument("--symbol", required=True, help="Trading pair (e.g., BTC/USDT)")
     parser.add_argument("--timeframe", default="4h", help="Candle timeframe")
     parser.add_argument("--limit", type=int, default=500, help="Number of candles to fetch")

@@ -2,17 +2,24 @@
 RiskManager: Position sizing and risk limit enforcement.
 
 Implements risk management rules including:
+- Half-Kelly position sizing with rolling trade history
+- Volatility targeting (annualized target)
+- Correlation guard for portfolio diversification
 - Position sizing based on ATR and risk percentage
 - Daily loss limits
 - Maximum open positions
 - Total drawdown limits
 - Cooldown after losses
 - ATR filter for volatility
+
+Reference: doc/Crypto Algo Trading System Research.md (Section 3)
 """
 
 import logging
 from datetime import datetime, timedelta
 from typing import Optional, Tuple
+
+import numpy as np
 
 logger = logging.getLogger(__name__)
 
@@ -48,6 +55,11 @@ class RiskManager:
         cooldown_minutes_after_loss: int = 240,
         min_atr_pct_filter: float = 0.003,
         spread_guard_bps: float = 10.0,
+        # --- New: Half-Kelly & Volatility ---
+        kelly_lookback: int = 50,
+        kelly_fraction: float = 0.5,
+        target_annual_vol: float = 0.15,
+        correlation_threshold: float = 0.80,
     ):
         """
         Initialize risk manager.
@@ -61,6 +73,10 @@ class RiskManager:
             cooldown_minutes_after_loss: Minutes to wait after a loss
             min_atr_pct_filter: Minimum ATR as % of price (skip low volatility)
             spread_guard_bps: Maximum spread in basis points
+            kelly_lookback: Number of recent trades for Kelly computation
+            kelly_fraction: Kelly fraction (0.5 = Half-Kelly)
+            target_annual_vol: Annualized volatility target (0.15 = 15%)
+            correlation_threshold: Max pairwise correlation before reducing
         """
         self.initial_equity = initial_equity
         self.risk_per_trade = risk_per_trade
@@ -70,7 +86,13 @@ class RiskManager:
         self.cooldown_minutes = cooldown_minutes_after_loss
         self.min_atr_pct_filter = min_atr_pct_filter
         self.spread_guard_bps = spread_guard_bps
-        
+
+        # Half-Kelly parameters
+        self.kelly_lookback = kelly_lookback
+        self.kelly_fraction = kelly_fraction
+        self.target_annual_vol = target_annual_vol
+        self.correlation_threshold = correlation_threshold
+
         # State tracking
         self.current_equity = initial_equity
         self.peak_equity = initial_equity
@@ -80,6 +102,9 @@ class RiskManager:
         self.last_loss_time: Optional[datetime] = None
         self.consecutive_losses = 0
         self.last_reset_date: Optional[datetime] = None
+
+        # Trade history for rolling Kelly computation
+        self.trade_history: list[dict] = []  # [{pnl, pnl_pct, symbol, ts}]
         
     def update_equity(self, equity: float) -> None:
         """Update current equity and peak."""
@@ -105,35 +130,154 @@ class RiskManager:
         price: float,
         atr_value: float,
         atr_stop_mult: float = 1.5,
+        realized_vol: Optional[float] = None,
     ) -> Tuple[float, float, float]:
         """
-        Compute position size based on risk parameters.
+        Compute position size using layered approach:
+          1. Base: ATR risk-based sizing (existing)
+          2. Half-Kelly overlay: scale by Kelly fraction if enough history
+          3. Volatility targeting: scale by target_vol / realized_vol
+          4. Cap at risk_per_trade ceiling
 
         Args:
             price: Current asset price
             atr_value: Current ATR value
             atr_stop_mult: Multiplier for ATR-based stop distance
+            realized_vol: Realized annualized volatility (optional)
 
         Returns:
             Tuple of (position_size_units, stop_price, take_profit_price)
         """
-        # Risk per trade in dollars
+        # --- Layer 1: ATR-based risk sizing ---
         risk_dollars = self.current_equity * self.risk_per_trade
-        
-        # Stop distance
         stop_distance = atr_value * atr_stop_mult
         stop_price = price - stop_distance
-        
-        # Position size: risk_dollars / stop_distance
+
         if stop_distance > 0:
             position_units = risk_dollars / stop_distance
         else:
             position_units = 0.0
-        
-        # Take profit at 2:1 RR
+
         tp_price = price + (stop_distance * 2)
-        
+
+        # --- Layer 2: Half-Kelly overlay ---
+        kelly_f = self._compute_kelly_fraction()
+        if kelly_f is not None:
+            # Kelly modulates the base size
+            position_units *= kelly_f / self.risk_per_trade if self.risk_per_trade > 0 else 1.0
+            # But never exceed the base risk_per_trade allocation
+            max_from_risk = risk_dollars / stop_distance if stop_distance > 0 else position_units
+            position_units = min(position_units, max_from_risk * 2.0)  # cap at 2x base
+            logger.debug("Kelly fraction: %.4f → adjusted position: %.6f", kelly_f, position_units)
+
+        # --- Layer 3: Volatility targeting ---
+        if realized_vol and realized_vol > 0 and self.target_annual_vol > 0:
+            vol_scalar = self.target_annual_vol / realized_vol
+            vol_scalar = np.clip(vol_scalar, 0.25, 2.0)  # clamp extremes
+            position_units *= vol_scalar
+            logger.debug("Vol scalar: %.2f (target=%.1f%%, realized=%.1f%%)",
+                         vol_scalar, self.target_annual_vol * 100, realized_vol * 100)
+
         return position_units, stop_price, tp_price
+
+    def _compute_kelly_fraction(self) -> Optional[float]:
+        """
+        Compute Half-Kelly fraction from rolling trade history.
+
+        Formula: f* = kelly_fraction × (W × avg_win - (1-W) × avg_loss) / avg_win
+        where W = win_rate.
+
+        Returns:
+            Kelly-adjusted fraction, or None if insufficient history.
+        """
+        recent = self.trade_history[-self.kelly_lookback:]
+        if len(recent) < 10:  # need minimum 10 trades
+            return None
+
+        wins = [t["pnl"] for t in recent if t["pnl"] > 0]
+        losses = [abs(t["pnl"]) for t in recent if t["pnl"] < 0]
+
+        if not wins or not losses:
+            return None
+
+        win_rate = len(wins) / len(recent)
+        avg_win = np.mean(wins)
+        avg_loss = np.mean(losses)
+
+        if avg_win <= 0:
+            return None
+
+        # Kelly formula
+        kelly = (win_rate * avg_win - (1 - win_rate) * avg_loss) / avg_win
+        half_kelly = self.kelly_fraction * kelly
+
+        # Clamp to [0, risk_per_trade]
+        half_kelly = float(np.clip(half_kelly, 0.0, self.risk_per_trade * 2))
+
+        logger.info(
+            "Kelly: W=%.1f%% avg_win=$%.2f avg_loss=$%.2f → f*=%.4f → half_kelly=%.4f",
+            win_rate * 100, avg_win, avg_loss, kelly, half_kelly,
+        )
+        return half_kelly
+
+    def compute_correlation_guard(
+        self, price_series: dict[str, list[float]]
+    ) -> float:
+        """
+        Check pairwise correlation among open positions.
+
+        If max pairwise correlation exceeds threshold, returns a
+        scaling factor < 1.0 to reduce new position sizes.
+
+        Args:
+            price_series: Dict of {symbol: [recent_prices]} for open positions
+
+        Returns:
+            Scaling factor (1.0 = no reduction, 0.5 = halved due to correlation)
+        """
+        symbols = list(price_series.keys())
+        if len(symbols) < 2:
+            return 1.0
+
+        # Compute returns
+        returns = {}
+        for sym, prices in price_series.items():
+            arr = np.array(prices)
+            if len(arr) < 10:
+                continue
+            rets = np.diff(np.log(arr))
+            returns[sym] = rets
+
+        if len(returns) < 2:
+            return 1.0
+
+        # Compute pairwise correlations
+        syms = list(returns.keys())
+        max_corr = 0.0
+        for i in range(len(syms)):
+            for j in range(i + 1, len(syms)):
+                min_len = min(len(returns[syms[i]]), len(returns[syms[j]]))
+                if min_len < 5:
+                    continue
+                corr = np.corrcoef(
+                    returns[syms[i]][-min_len:],
+                    returns[syms[j]][-min_len:],
+                )[0, 1]
+                if not np.isnan(corr):
+                    max_corr = max(max_corr, abs(corr))
+
+        if max_corr > self.correlation_threshold:
+            # Linearly reduce from 1.0 at threshold to 0.5 at correlation=1.0
+            scale = 1.0 - 0.5 * (max_corr - self.correlation_threshold) / (
+                1.0 - self.correlation_threshold
+            )
+            logger.warning(
+                "⚠️ Correlation guard: max=%.2f > %.2f → scale=%.2f",
+                max_corr, self.correlation_threshold, scale,
+            )
+            return max(0.25, scale)
+
+        return 1.0
     
     def evaluate_trade(
         self,
@@ -235,37 +379,55 @@ class RiskManager:
         """Register that a new position was opened."""
         self.open_positions += 1
         logger.debug(f"Position opened. Open positions: {self.open_positions}")
-    
-    def register_trade_close(self, pnl: float) -> None:
+
+    def register_trade_close(
+        self, pnl: float, symbol: str = "UNKNOWN", pnl_pct: Optional[float] = None
+    ) -> None:
         """
-        Register a completed trade's PnL.
+        Register a completed trade's PnL and update trade history for Kelly.
 
         Args:
-            pnl: Profit/loss from the trade
+            pnl: Profit/loss from the trade in dollars
+            symbol: Symbol that was traded
+            pnl_pct: PnL as a percentage of the position (optional)
         """
         self.open_positions = max(0, self.open_positions - 1)
         self.daily_pnl += pnl
         self.current_equity += pnl
-        
+
+        # Record for Kelly computation
+        self.trade_history.append({
+            "pnl": pnl,
+            "pnl_pct": pnl_pct or (pnl / self.current_equity if self.current_equity > 0 else 0),
+            "symbol": symbol,
+            "ts": datetime.utcnow().isoformat(),
+        })
+        # Keep only the rolling window
+        if len(self.trade_history) > self.kelly_lookback * 2:
+            self.trade_history = self.trade_history[-self.kelly_lookback:]
+
         if pnl >= 0:
             self.consecutive_losses = 0
             self.last_loss_time = None
         else:
             self.consecutive_losses += 1
             self.last_loss_time = datetime.utcnow()
-        
+
         # Update peak
         if self.current_equity > self.peak_equity:
             self.peak_equity = self.current_equity
-        
+
         logger.debug(f"Trade closed. PnL: ${pnl:.2f}, Daily PnL: ${self.daily_pnl:.2f}, "
-                    f"Equity: ${self.current_equity:.2f}")
+                    f"Equity: ${self.current_equity:.2f}, "
+                    f"Kelly trades: {len(self.trade_history)}")
     
     def get_status(self) -> dict:
-        """Get current risk status."""
+        """Get current risk status including Kelly metrics."""
         drawdown_pct = (self.peak_equity - self.current_equity) / self.peak_equity if self.peak_equity > 0 else 0
         daily_loss_pct = abs(self.daily_pnl) / self.daily_starting_equity if self.daily_starting_equity > 0 else 0
-        
+
+        kelly_f = self._compute_kelly_fraction()
+
         return {
             "current_equity": self.current_equity,
             "peak_equity": self.peak_equity,
@@ -274,6 +436,8 @@ class RiskManager:
             "drawdown_pct": drawdown_pct,
             "open_positions": self.open_positions,
             "consecutive_losses": self.consecutive_losses,
-            "cooldown_active": self.last_loss_time is not None and 
+            "cooldown_active": self.last_loss_time is not None and
                               datetime.utcnow() < self.last_loss_time + timedelta(minutes=self.cooldown_minutes),
+            "kelly_fraction": kelly_f,
+            "trade_history_count": len(self.trade_history),
         }

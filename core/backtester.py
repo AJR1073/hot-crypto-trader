@@ -206,6 +206,15 @@ def run_single_backtest(
     from strategies.squeeze_breakout import SqueezeBreakoutBacktest
     from strategies.grid_ladder import GridLadderBacktest
     from strategies.supertrend import SuperTrendBacktest
+    from strategies.rsi_divergence import RSIDivergenceBacktest
+    from strategies.macd_crossover import MACDCrossoverBacktest
+    from strategies.ichimoku import IchimokuBacktest
+    from strategies.vwap_bounce import VWAPBounceBacktest
+    from strategies.dual_thrust import DualThrustBacktest
+    from strategies.turtle import TurtleBacktest
+    from strategies.triple_momentum import TripleMomentumBacktest
+    from strategies.triple_momentum_v2 import TripleMomentumV2Backtest
+    from strategies.volatility_hunter import VolatilityHunterBacktest
     
     STRATEGIES = {
         "TREND_EMA": TrendEmaBacktest,
@@ -213,6 +222,15 @@ def run_single_backtest(
         "SQZ_BO": SqueezeBreakoutBacktest,
         "GRID_LR": GridLadderBacktest,
         "SUPERTREND": SuperTrendBacktest,
+        "RSI_DIV": RSIDivergenceBacktest,
+        "MACD_X": MACDCrossoverBacktest,
+        "ICHI": IchimokuBacktest,
+        "VWAP": VWAPBounceBacktest,
+        "DUAL_T": DualThrustBacktest,
+        "TURTLE": TurtleBacktest,
+        "TRIPLE_MOMO": TripleMomentumBacktest,
+        "TRIPLE_V2": TripleMomentumV2Backtest,
+        "VOL_HUNT": VolatilityHunterBacktest,
     }
     
     if strategy_name not in STRATEGIES:

@@ -14,6 +14,9 @@ numpy>=1.24.0
 # Database
 sqlalchemy>=2.0.0
 
+# HTTP
+requests>=2.31.0
+
 # Configuration
 python-dotenv>=1.0.0
 pyyaml>=6.0.0

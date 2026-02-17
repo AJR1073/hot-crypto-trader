@@ -2,12 +2,12 @@
 # For paper trading simulation
 
 exchange:
-  name: binanceus
-  sandbox: false  # Binance.US doesn't have sandbox
+  name: kraken
+  sandbox: false
 
 symbols:
-  - BTC/USDT
-  - ETH/USDT
+  - BTC/USD
+  - ETH/USD
 
 timeframe: "4h"
 
@@ -17,7 +17,7 @@ db_url: "sqlite:///data/hot_crypto.db"
 # Paper trading mode
 paper_trading: true
 initial_cash: 10000
-commission: 0.0005  # 0.05%
+commission: 0.0026  # Kraken taker fee 0.26%
 slippage_bps: 2     # 2 basis points slippage
 
 # Risk Management
@@ -35,3 +35,44 @@ loop:
   sleep_seconds: 60               # Sleep between cycles
   refresh_bars_from_ccxt: 50      # Bars to fetch from CCXT on refresh
   lookback_bars: 500              # Bars to load for strategy
+
+# Market Scanner
+scanner:
+  enabled: true
+  movers_limit: 20
+  trending_limit: 10
+  min_overlap: 5
+  max_additions: 2
+
+# --- Live Trading (Phase 1) ---
+execution:
+  mode: paper                   # paper | live
+  order_type: limit             # limit | market
+  chase_timeout_seconds: 30
+  chase_max_attempts: 3
+
+circuit_breakers:
+  asset_drop_pct: 0.15          # halt if asset drops 15% in 1h
+  portfolio_kill_pct: 0.10      # freeze ALL trading if portfolio down 10%
+  consecutive_loss_limit: 3     # pause after 3 consecutive losses
+  consecutive_cooldown_minutes: 30
+  flash_crash_pct: 0.05         # 5% move in 60s
+  flash_crash_window_seconds: 60
+
+# --- Ensemble (Phase 2) ---
+ensemble:
+  enabled: true
+  consensus_threshold: 2        # min strategies agreeing
+  min_weighted_confidence: 0.3
+  regime_window: 100            # bars for Hurst Exponent
+  adx_period: 14
+
+# --- Phase 3 ---
+notifications:
+  telegram_enabled: false
+  # telegram_bot_token: ${TELEGRAM_BOT_TOKEN}
+  # telegram_chat_id: ${TELEGRAM_CHAT_ID}
+
+compliance:
+  wash_sale_days: 30
+  tax_logging: true

@@ -26,7 +26,7 @@ def save_backtest_to_db(
     timeframe: str,
     strategy_name: str,
     initial_cash: float,
-    exchange: str = "binanceus",
+    exchange: str = "kraken",
     db_url: Optional[str] = None,
 ) -> int:
     """

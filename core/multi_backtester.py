@@ -28,6 +28,15 @@ from strategies.mean_reversion_bb import MeanReversionBBBacktest
 from strategies.squeeze_breakout import SqueezeBreakoutBacktest
 from strategies.grid_ladder import GridLadderBacktest
 from strategies.supertrend import SuperTrendBacktest
+from strategies.rsi_divergence import RSIDivergenceBacktest
+from strategies.macd_crossover import MACDCrossoverBacktest
+from strategies.ichimoku import IchimokuBacktest
+from strategies.vwap_bounce import VWAPBounceBacktest
+from strategies.dual_thrust import DualThrustBacktest
+from strategies.turtle import TurtleBacktest
+from strategies.triple_momentum import TripleMomentumBacktest
+from strategies.triple_momentum_v2 import TripleMomentumV2Backtest
+from strategies.volatility_hunter import VolatilityHunterBacktest
 
 logger = logging.getLogger(__name__)
 
@@ -37,7 +46,16 @@ STRATEGIES = {
     "MR_BB": MeanReversionBBBacktest,
     "SQZ_BO": SqueezeBreakoutBacktest,
     "GRID_LR": GridLadderBacktest,
-    "SUPERTREND": SuperTrendBacktest, # Added SUPERTREND
+    "SUPERTREND": SuperTrendBacktest,
+    "RSI_DIV": RSIDivergenceBacktest,
+    "MACD_X": MACDCrossoverBacktest,
+    "ICHI": IchimokuBacktest,
+    "VWAP": VWAPBounceBacktest,
+    "DUAL_T": DualThrustBacktest,
+    "TURTLE": TurtleBacktest,
+    "TRIPLE_MOMO": TripleMomentumBacktest,
+    "TRIPLE_V2": TripleMomentumV2Backtest,
+    "VOL_HUNT": VolatilityHunterBacktest,
 }
 
 
@@ -93,10 +111,18 @@ def run_all_backtests(
         try:
             df = data_source.get_ohlcv(symbol=symbol, timeframe=timeframe, limit=limit)
             df = prepare_ohlcv_for_backtesting(df)
+            
+            # Extract date range info
+            start_date = df.index.min().strftime('%Y-%m-%d') if len(df) > 0 else 'N/A'
+            end_date = df.index.max().strftime('%Y-%m-%d') if len(df) > 0 else 'N/A'
+            days_span = (df.index.max() - df.index.min()).days if len(df) > 1 else 0
+            
             logger.info(f"Loaded {len(df)} candles for {symbol}")
+            logger.info(f"Data Period: {start_date} to {end_date} ({days_span} days)")
         except Exception as e:
             logger.error(f"Failed to load data for {symbol}: {e}")
             continue
+            start_date, end_date, days_span = 'N/A', 'N/A', 0
         
         # Run each strategy
         for strategy_name, strategy_class in STRATEGIES.items():
@@ -122,6 +148,9 @@ def run_all_backtests(
                     "sharpe_ratio": stats["Sharpe Ratio"] if not pd.isna(stats["Sharpe Ratio"]) else 0.0,
                     "trades_count": stats["# Trades"],
                     "win_rate": stats["Win Rate [%]"] if not pd.isna(stats["Win Rate [%]"]) else 0.0,
+                    "start_date": start_date,
+                    "end_date": end_date,
+                    "days_span": days_span,
                 })
                 
                 logger.info(f"    -> {strategy_name}: ${stats['Equity Final [$]']:,.2f} "

@@ -2,21 +2,21 @@
 # Define symbol/timeframe pairs to monitor and trade
 
 markets:
-  - symbol: BTC/USDT
+  - symbol: BTC/USD
     timeframes:
       - 4h
       - 1d
 
-  - symbol: ETH/USDT
+  - symbol: ETH/USD
     timeframes:
       - 4h
       - 1d
 
-  - symbol: SOL/USDT
+  - symbol: SOL/USD
     timeframes:
       - 4h
 
-  - symbol: AVAX/USDT
+  - symbol: AVAX/USD
     timeframes:
       - 4h
 
