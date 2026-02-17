@@ -21,7 +21,7 @@ from __future__ import annotations
 import logging
 import uuid
 from dataclasses import dataclass, field
-from datetime import datetime
+from datetime import datetime, timezone
 from enum import Enum
 from typing import Optional, TYPE_CHECKING
 
@@ -82,10 +82,10 @@ class ManagedOrder:
     chase_attempts: int = 0
 
     # Timestamps
-    created_at: datetime = field(default_factory=datetime.utcnow)
+    created_at: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
     submitted_at: Optional[datetime] = None
     filled_at: Optional[datetime] = None
-    updated_at: datetime = field(default_factory=datetime.utcnow)
+    updated_at: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
 
     @property
     def is_terminal(self) -> bool:
@@ -131,7 +131,7 @@ def generate_client_order_id(strategy: str, symbol: str) -> str:
     """
     sym_clean = symbol.replace("/", "").replace("-", "")
     strat_clean = strategy.replace("_", "").upper()[:6]
-    ts = datetime.utcnow().strftime("%Y%m%dT%H%M")
+    ts = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M")
     short_uuid = uuid.uuid4().hex[:8]
     return f"HOT_{strat_clean}_{sym_clean}_{ts}_{short_uuid}"
 
@@ -334,7 +334,7 @@ class Executor:
             order.filled_qty = order.qty
             order.avg_fill_price = fill_price
             order.fees = fees
-            order.filled_at = datetime.utcnow()
+            order.filled_at = datetime.now(timezone.utc)
 
             if self.risk_manager:
                 self.risk_manager.register_trade_open()
@@ -394,7 +394,7 @@ class Executor:
 
             order.exchange_order_id = response.get("id")
             order.status = OrderStatus.SUBMITTED
-            order.submitted_at = datetime.utcnow()
+            order.submitted_at = datetime.now(timezone.utc)
 
             # Check immediate fill
             resp_status = response.get("status", "open")
@@ -404,7 +404,7 @@ class Executor:
                 order.avg_fill_price = float(
                     response.get("average", order.price)
                 )
-                order.filled_at = datetime.utcnow()
+                order.filled_at = datetime.now(timezone.utc)
             elif resp_status == "partially_filled":
                 order.status = OrderStatus.PARTIAL
                 order.filled_qty = float(response.get("filled", 0))
@@ -617,7 +617,7 @@ class Executor:
                 order.status = OrderStatus.FILLED
                 order.filled_qty = float(result.get("filled", order.qty))
                 order.avg_fill_price = float(result.get("average", order.price))
-                order.filled_at = datetime.utcnow()
+                order.filled_at = datetime.now(timezone.utc)
                 return {"action": "FILLED", **order.to_dict()}
             elif status in ("open", "partially_filled"):
                 order.filled_qty = float(result.get("filled", 0))

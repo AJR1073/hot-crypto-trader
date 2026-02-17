@@ -16,7 +16,7 @@ Reference: doc/Crypto Algo Trading System Research.md (Section 3)
 """
 
 import logging
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from typing import Optional, Tuple
 
 import numpy as np
@@ -116,12 +116,12 @@ class RiskManager:
         """Reset daily tracking (call at start of each UTC day)."""
         self.daily_pnl = 0.0
         self.daily_starting_equity = equity
-        self.last_reset_date = datetime.utcnow().date()
+        self.last_reset_date = datetime.now(timezone.utc).date()
         logger.info(f"Daily reset: equity=${equity:.2f}")
     
     def check_daily_reset(self) -> None:
         """Check if we need to reset daily tracking."""
-        today = datetime.utcnow().date()
+        today = datetime.now(timezone.utc).date()
         if self.last_reset_date != today:
             self.reset_daily(self.current_equity)
     
@@ -328,8 +328,8 @@ class RiskManager:
         # Check cooldown after loss
         if self.last_loss_time:
             cooldown_end = self.last_loss_time + timedelta(minutes=self.cooldown_minutes)
-            if datetime.utcnow() < cooldown_end:
-                remaining = (cooldown_end - datetime.utcnow()).total_seconds() / 60
+            if datetime.now(timezone.utc) < cooldown_end:
+                remaining = (cooldown_end - datetime.now(timezone.utc)).total_seconds() / 60
                 return RiskDecision(
                     approved=False,
                     reason=f"Cooldown active: {remaining:.0f} minutes remaining after loss"
@@ -400,7 +400,7 @@ class RiskManager:
             "pnl": pnl,
             "pnl_pct": pnl_pct or (pnl / self.current_equity if self.current_equity > 0 else 0),
             "symbol": symbol,
-            "ts": datetime.utcnow().isoformat(),
+            "ts": datetime.now(timezone.utc).isoformat(),
         })
         # Keep only the rolling window
         if len(self.trade_history) > self.kelly_lookback * 2:
@@ -411,7 +411,7 @@ class RiskManager:
             self.last_loss_time = None
         else:
             self.consecutive_losses += 1
-            self.last_loss_time = datetime.utcnow()
+            self.last_loss_time = datetime.now(timezone.utc)
 
         # Update peak
         if self.current_equity > self.peak_equity:
@@ -437,7 +437,7 @@ class RiskManager:
             "open_positions": self.open_positions,
             "consecutive_losses": self.consecutive_losses,
             "cooldown_active": self.last_loss_time is not None and
-                              datetime.utcnow() < self.last_loss_time + timedelta(minutes=self.cooldown_minutes),
+                              datetime.now(timezone.utc) < self.last_loss_time + timedelta(minutes=self.cooldown_minutes),
             "kelly_fraction": kelly_f,
             "trade_history_count": len(self.trade_history),
         }

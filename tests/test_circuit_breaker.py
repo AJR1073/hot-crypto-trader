@@ -3,7 +3,7 @@ Tests for core/circuit_breaker.py — all four breaker types.
 """
 
 import time
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from unittest.mock import patch
 
 import pytest
@@ -106,8 +106,8 @@ class TestBreakerTrip:
         trip = BreakerTrip(
             breaker_type="test",
             symbol="BTC/USDT",
-            triggered_at=datetime.utcnow(),
-            expires_at=datetime.utcnow() + timedelta(hours=1),
+            triggered_at=datetime.now(timezone.utc),
+            expires_at=datetime.now(timezone.utc) + timedelta(hours=1),
             reason="test trip",
         )
         assert trip.is_active
@@ -116,8 +116,8 @@ class TestBreakerTrip:
         trip = BreakerTrip(
             breaker_type="test",
             symbol=None,
-            triggered_at=datetime.utcnow() - timedelta(hours=2),
-            expires_at=datetime.utcnow() - timedelta(hours=1),
+            triggered_at=datetime.now(timezone.utc) - timedelta(hours=2),
+            expires_at=datetime.now(timezone.utc) - timedelta(hours=1),
             reason="old trip",
         )
         assert not trip.is_active

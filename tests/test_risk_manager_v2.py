@@ -145,8 +145,8 @@ class TestRiskManagerBackwardCompat:
             cooldown_minutes_after_loss=0,  # disable cooldown to isolate daily loss check
         )
         # Pre-set today's reset so check_daily_reset() doesn't zero daily_pnl
-        from datetime import datetime
-        rm.last_reset_date = datetime.utcnow().date()
+        from datetime import datetime, timezone
+        rm.last_reset_date = datetime.now(timezone.utc).date()
         rm.daily_starting_equity = 10000.0
         # Simulate a daily loss by registering losing trades
         rm.register_trade_close(-150.0, symbol="TEST")

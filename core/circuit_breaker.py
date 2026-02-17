@@ -16,7 +16,7 @@ import logging
 import time
 from collections import defaultdict
 from dataclasses import dataclass, field
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from typing import Optional
 
 logger = logging.getLogger(__name__)
@@ -34,7 +34,7 @@ class BreakerTrip:
 
     @property
     def is_active(self) -> bool:
-        return datetime.utcnow() < self.expires_at
+        return datetime.now(timezone.utc) < self.expires_at
 
 
 class CircuitBreaker:
@@ -271,7 +271,7 @@ class CircuitBreaker:
     # ------------------------------------------------------------------
 
     def _trip_asset(self, symbol: str, reason: str) -> None:
-        now = datetime.utcnow()
+        now = datetime.now(timezone.utc)
         trip = BreakerTrip(
             breaker_type="asset",
             symbol=symbol,
@@ -283,7 +283,7 @@ class CircuitBreaker:
         logger.critical("🚨 CIRCUIT BREAKER [asset]: %s", reason)
 
     def _trip_portfolio(self, reason: str) -> None:
-        now = datetime.utcnow()
+        now = datetime.now(timezone.utc)
         trip = BreakerTrip(
             breaker_type="portfolio",
             symbol=None,  # affects all symbols
@@ -295,7 +295,7 @@ class CircuitBreaker:
         logger.critical("🚨 CIRCUIT BREAKER [portfolio]: %s", reason)
 
     def _trip_consecutive(self) -> None:
-        now = datetime.utcnow()
+        now = datetime.now(timezone.utc)
         reason = f"{self._consecutive_losses} consecutive losing trades"
         trip = BreakerTrip(
             breaker_type="consecutive",
@@ -308,7 +308,7 @@ class CircuitBreaker:
         logger.critical("🚨 CIRCUIT BREAKER [consecutive]: %s", reason)
 
     def _trip_flash(self, symbol: str, reason: str) -> None:
-        now = datetime.utcnow()
+        now = datetime.now(timezone.utc)
         trip = BreakerTrip(
             breaker_type="flash",
             symbol=symbol,
